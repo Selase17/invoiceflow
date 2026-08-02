@@ -1,0 +1,19 @@
+{
+  "name": "invoiceflow",
+  "version": "0.1.0",
+  "description": "Expense tracking and invoicing system - API + background worker",
+  "main": "src/index.js",
+  "scripts": {
+    "start:api": "node src/index.js",
+    "start:worker": "node src/worker.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "pg": "^8.11.5",
+    "bullmq": "^5.12.0",
+    "ioredis": "^5.4.1",
+    "pdfkit": "^0.15.0",
+    "nodemailer": "^6.9.14",
+    "dotenv": "^16.4.5"
+  }
+}

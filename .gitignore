@@ -1,0 +1,5 @@
+node_modules
+.env
+npm-debug.log
+.git
+Dockerfile_Compose_Verification_Roadmap.mdDockerfile_Compose_Verification_Roadmap.md

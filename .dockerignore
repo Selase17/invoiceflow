@@ -1,0 +1,12 @@
+node_modules
+.env
+npm-debug.log
+.git
+compose.yml
+Dockerfile
+.dockerignore
+db/
+.env.example
+LICENSE
+.gitignore
+Dockerfile_Compose_Verification_Roadmap.md

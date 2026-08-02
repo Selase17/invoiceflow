@@ -1,0 +1,78 @@
+services:
+  api:
+    build: .
+    image: invoiceflow-api:v1.0.0
+    container_name: invoiceflow-api
+    read_only: true
+    tmpfs:
+      - /tmp
+    ports:
+      - "3000:3000"
+    env_file: .env
+    networks: [public, private]
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build: .
+    image: invoiceflow-worker:v1.0.0
+    container_name: invoiceflow-worker
+    read_only: true
+    tmpfs:
+      - /tmp
+    command: ["npm", "run", "start:worker"]
+    env_file: .env
+    networks: [public, private]
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  db:
+    image: postgres:16-alpine
+    container_name: invoiceflow-db
+    environment:
+      POSTGRES_DB: invoiceflow
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      retries: 5
+    networks: [private]
+
+  redis:
+    image: redis:7-alpine
+    container_name: invoiceflow-redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 5
+    networks: [private]
+
+  mailhog:
+    image: mailhog/mailhog
+    container_name: invoiceflow-mailhog
+    ports:
+      - "8025:8025"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8025"]
+      interval: 5s
+      retries: 5
+    networks: [public]
+
+networks:
+  public: {}
+  private:
+    internal: true
+
+volumes:
+  db_data:
+  redis_data:
