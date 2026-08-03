@@ -1,0 +1,583 @@
+{
+  "title": "InvoiceFlow — API + Worker",
+  "uid": "invoiceflow-main",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-3h", "to": "now" },
+  "timezone": "browser",
+  "tags": ["invoiceflow"],
+
+  "templating": {
+    "list": [
+      {
+        "name": "datasource_prometheus",
+        "type": "datasource",
+        "query": "prometheus",
+        "label": "Prometheus",
+        "current": { "text": "Prometheus", "value": "Prometheus" }
+      },
+      {
+        "name": "datasource_loki",
+        "type": "datasource",
+        "query": "loki",
+        "label": "Loki",
+        "current": { "text": "Loki", "value": "Loki" }
+      }
+    ]
+  },
+
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+
+  "panels": [
+
+    {
+      "id": 1,
+      "type": "row",
+      "title": "🌐 API — Golden Signals",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 1 }
+    },
+
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "API — Request Rate (traffic)",
+      "description": "Requests per second by route. Shows whether the API is receiving traffic and which endpoints are busiest.",
+      "datasource": { "type": "prometheus", "uid": "${datasource_prometheus}" },
+      "gridPos": { "x": 0, "y": 1, "w": 8, "h": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": { "lineWidth": 2, "fillOpacity": 10 }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (route, method) (rate(invoiceflow_http_requests_total[1m]))",
+          "legendFormat": "{{method}} {{route}}",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "API — HTTP 5xx Error Rate (errors)",
+      "description": "Fraction of requests returning 5xx. Anything above 1 % is worth investigating.",
+      "datasource": { "type": "prometheus", "uid": "${datasource_prometheus}" },
+      "gridPos": { "x": 8, "y": 1, "w": 8, "h": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": { "lineWidth": 2, "fillOpacity": 10 },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.01 },
+              { "color": "red", "value": 0.05 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(invoiceflow_http_requests_total{status_code=~\"5..\"}[1m])) / sum(rate(invoiceflow_http_requests_total[1m]))",
+          "legendFormat": "5xx rate",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "API — Response Latency p50 / p95 / p99 (latency)",
+      "description": "Histogram quantiles for all HTTP routes. p99 > 1 s indicates a problem; p99 > 3 s is critical.",
+      "datasource": { "type": "prometheus", "uid": "${datasource_prometheus}" },
+      "gridPos": { "x": 16, "y": 1, "w": 8, "h": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "lineWidth": 2, "fillOpacity": 8 }
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(invoiceflow_http_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(invoiceflow_http_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(invoiceflow_http_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "p99",
+          "refId": "C"
+        }
+      ]
+    },
+
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "API — Node.js Heap Saturation (saturation)",
+      "description": "Heap used / heap total. Above 90 % the GC thrashes; above 95 % you are at risk of OOM kills.",
+      "datasource": { "type": "prometheus", "uid": "${datasource_prometheus}" },
+      "gridPos": { "x": 0, "y": 9, "w": 8, "h": 7 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0, "max": 1,
+          "custom": { "lineWidth": 2, "fillOpacity": 10 },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.80 },
+              { "color": "red", "value": 0.90 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "invoiceflow_nodejs_heap_size_used_bytes{service=\"invoiceflow-api\"} / invoiceflow_nodejs_heap_size_total_bytes{service=\"invoiceflow-api\"}",
+          "legendFormat": "heap used %",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "API — Active Handles & Event-Loop Lag (saturation)",
+      "description": "Event-loop lag > 100 ms means the Node.js single thread is struggling. Active handles track open sockets.",
+      "datasource": { "type": "prometheus", "uid": "${datasource_prometheus}" },
+      "gridPos": { "x": 8, "y": 9, "w": 8, "h": 7 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "lineWidth": 2, "fillOpacity": 8 }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "active handles" },
+            "properties": [{ "id": "unit", "value": "short" }, { "id": "custom.axisPlacement", "value": "right" }]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "expr": "invoiceflow_nodejs_eventloop_lag_seconds{service=\"invoiceflow-api\"}",
+          "legendFormat": "event-loop lag",
+          "refId": "A"
+        },
+        {
+          "expr": "invoiceflow_nodejs_active_handles_total{service=\"invoiceflow-api\"}",
+          "legendFormat": "active handles",
+          "refId": "B"
+        }
+      ]
+    },
+
+    {
+      "id": 7,
+      "type": "logs",
+      "title": "API — Recent Error Logs",
+      "description": "Live stream of level=ERROR events from the API container.",
+      "datasource": { "type": "loki", "uid": "${datasource_loki}" },
+      "gridPos": { "x": 16, "y": 9, "w": 8, "h": 7 },
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "showTime": true,
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "expr": "{service=\"invoiceflow-api\", level=\"ERROR\"}",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 10,
+      "type": "row",
+      "title": "⚙️  Worker — Is it keeping up?",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 16, "w": 24, "h": 1 }
+    },
+
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "Queue Depth — Waiting Jobs (saturation)",
+      "description": "How many jobs are waiting to be picked up. This is the primary signal for whether the worker is keeping up. A growing number here means the worker cannot drain the queue fast enough.",
+      "datasource": { "type": "prometheus", "uid": "${datasource_prometheus}" },
+      "gridPos": { "x": 0, "y": 17, "w": 6, "h": 5 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "auto", "textMode": "auto", "colorMode": "background" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 10 },
+              { "color": "red", "value": 50 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "invoiceflow_bullmq_jobs_waiting{queue=\"invoice-jobs\"}",
+          "legendFormat": "waiting",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "Queue Depth — Active Jobs",
+      "description": "Jobs currently being processed by the worker. Should stay low (≈ worker concurrency). If this is zero and waiting > 0, the worker is stalled.",
+      "datasource": { "type": "prometheus", "uid": "${datasource_prometheus}" },
+      "gridPos": { "x": 6, "y": 17, "w": 6, "h": 5 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 5 },
+              { "color": "red", "value": 20 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "invoiceflow_bullmq_jobs_active{queue=\"invoice-jobs\"}",
+          "legendFormat": "active",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Failed Job Backlog (silent failures)",
+      "description": "Jobs stuck in the failed state after exhausting retries. BullMQ keeps them in Redis indefinitely. A non-zero and growing number here means invoices are silently not being sent.",
+      "datasource": { "type": "prometheus", "uid": "${datasource_prometheus}" },
+      "gridPos": { "x": 12, "y": 17, "w": 6, "h": 5 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 10 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "invoiceflow_bullmq_jobs_failed_backlog{queue=\"invoice-jobs\"}",
+          "legendFormat": "failed backlog",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 14,
+      "type": "stat",
+      "title": "Delayed Jobs",
+      "description": "Jobs scheduled for the future (e.g. the daily overdue check). Normally a small, stable number.",
+      "datasource": { "type": "prometheus", "uid": "${datasource_prometheus}" },
+      "gridPos": { "x": 18, "y": 17, "w": 6, "h": 5 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "blue", "value": null }]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "invoiceflow_bullmq_jobs_delayed{queue=\"invoice-jobs\"}",
+          "legendFormat": "delayed",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Queue Depth Over Time (saturation)",
+      "description": "Stacked view of all queue states. A rising 'waiting' band is the clearest sign the worker is not keeping up.",
+      "datasource": { "type": "prometheus", "uid": "${datasource_prometheus}" },
+      "gridPos": { "x": 0, "y": 22, "w": 12, "h": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "lineWidth": 2, "fillOpacity": 15, "stacking": { "mode": "normal" } }
+        }
+      },
+      "targets": [
+        {
+          "expr": "invoiceflow_bullmq_jobs_waiting{queue=\"invoice-jobs\"}",
+          "legendFormat": "waiting",
+          "refId": "A"
+        },
+        {
+          "expr": "invoiceflow_bullmq_jobs_active{queue=\"invoice-jobs\"}",
+          "legendFormat": "active",
+          "refId": "B"
+        },
+        {
+          "expr": "invoiceflow_bullmq_jobs_delayed{queue=\"invoice-jobs\"}",
+          "legendFormat": "delayed",
+          "refId": "C"
+        },
+        {
+          "expr": "invoiceflow_bullmq_jobs_failed_backlog{queue=\"invoice-jobs\"}",
+          "legendFormat": "failed backlog",
+          "refId": "D"
+        }
+      ]
+    },
+
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Job Completions vs Failures (traffic + errors)",
+      "description": "Rate of completed and failed jobs. The gap between these lines is how many invoices were successfully sent per second. Any failures here mean an invoice was not sent.",
+      "datasource": { "type": "prometheus", "uid": "${datasource_prometheus}" },
+      "gridPos": { "x": 12, "y": 22, "w": 12, "h": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": { "lineWidth": 2, "fillOpacity": 10 }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "failed" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "expr": "sum by (job_name) (rate(invoiceflow_bullmq_jobs_completed_total{queue=\"invoice-jobs\"}[1m]))",
+          "legendFormat": "completed — {{job_name}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (job_name) (rate(invoiceflow_bullmq_jobs_failed_total{queue=\"invoice-jobs\"}[1m]))",
+          "legendFormat": "failed — {{job_name}}",
+          "refId": "B"
+        }
+      ]
+    },
+
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Job Processing Duration p50 / p95 (latency)",
+      "description": "How long each job type actually takes to run. send-invoice includes PDF generation + SMTP. A rising p95 here often predicts a growing queue depth.",
+      "datasource": { "type": "prometheus", "uid": "${datasource_prometheus}" },
+      "gridPos": { "x": 0, "y": 30, "w": 12, "h": 7 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "lineWidth": 2, "fillOpacity": 8 }
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (job_name, le) (rate(invoiceflow_bullmq_job_duration_seconds_bucket{queue=\"invoice-jobs\"}[5m])))",
+          "legendFormat": "p50 — {{job_name}}",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (job_name, le) (rate(invoiceflow_bullmq_job_duration_seconds_bucket{queue=\"invoice-jobs\"}[5m])))",
+          "legendFormat": "p95 — {{job_name}}",
+          "refId": "B"
+        }
+      ]
+    },
+
+    {
+      "id": 18,
+      "type": "logs",
+      "title": "Worker — Recent job_failed Events",
+      "description": "Log lines from the worker where a job has failed. These include job_id, job_name, and the error message — fast path to silent failure investigation.",
+      "datasource": { "type": "loki", "uid": "${datasource_loki}" },
+      "gridPos": { "x": 12, "y": 30, "w": 12, "h": 7 },
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "showTime": true,
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "expr": "{service=\"invoiceflow-worker\", event=\"job_failed\"}",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 20,
+      "type": "row",
+      "title": "🏗️  Infrastructure — Redis & Postgres Saturation",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 37, "w": 24, "h": 1 }
+    },
+
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Redis Memory (saturation)",
+      "description": "If Redis hits maxmemory, BullMQ enqueues will start throwing errors, which means the API's POST /invoices/:id/send will return 500.",
+      "datasource": { "type": "prometheus", "uid": "${datasource_prometheus}" },
+      "gridPos": { "x": 0, "y": 38, "w": 8, "h": 7 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": { "lineWidth": 2, "fillOpacity": 10 }
+        }
+      },
+      "targets": [
+        {
+          "expr": "redis_memory_used_bytes",
+          "legendFormat": "used",
+          "refId": "A"
+        },
+        {
+          "expr": "redis_memory_max_bytes",
+          "legendFormat": "max",
+          "refId": "B"
+        }
+      ]
+    },
+
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Redis Connected Clients",
+      "description": "Both API and worker maintain persistent connections. Spikes can indicate connection leaks.",
+      "datasource": { "type": "prometheus", "uid": "${datasource_prometheus}" },
+      "gridPos": { "x": 8, "y": 38, "w": 8, "h": 7 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "lineWidth": 2, "fillOpacity": 10 }
+        }
+      },
+      "targets": [
+        {
+          "expr": "redis_connected_clients",
+          "legendFormat": "clients",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "Postgres Active Connections (saturation)",
+      "description": "Shared by API and worker. Approaching max_connections means new queries will be refused.",
+      "datasource": { "type": "prometheus", "uid": "${datasource_prometheus}" },
+      "gridPos": { "x": 16, "y": 38, "w": 8, "h": 7 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "lineWidth": 2, "fillOpacity": 10 }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (state) (pg_stat_activity_count)",
+          "legendFormat": "{{state}}",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 30,
+      "type": "row",
+      "title": "📋  Log Explorer",
+      "collapsed": true,
+      "gridPos": { "x": 0, "y": 45, "w": 24, "h": 1 }
+    },
+
+    {
+      "id": 31,
+      "type": "logs",
+      "title": "All Worker Logs",
+      "datasource": { "type": "loki", "uid": "${datasource_loki}" },
+      "gridPos": { "x": 0, "y": 46, "w": 12, "h": 10 },
+      "options": { "dedupStrategy": "none", "enableLogDetails": true, "showTime": true, "wrapLogMessage": false },
+      "targets": [
+        {
+          "expr": "{service=\"invoiceflow-worker\"}",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 32,
+      "type": "logs",
+      "title": "All API Logs",
+      "datasource": { "type": "loki", "uid": "${datasource_loki}" },
+      "gridPos": { "x": 12, "y": 46, "w": 12, "h": 10 },
+      "options": { "dedupStrategy": "none", "enableLogDetails": true, "showTime": true, "wrapLogMessage": false },
+      "targets": [
+        {
+          "expr": "{service=\"invoiceflow-api\"}",
+          "refId": "A"
+        }
+      ]
+    }
+
+  ]
+}

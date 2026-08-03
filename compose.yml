@@ -51,6 +51,8 @@ services:
   redis:
     image: redis:7-alpine
     container_name: invoiceflow-redis
+    volumes:
+      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -68,6 +70,88 @@ services:
       retries: 5
     networks: [public]
 
+  # ── Observability stack ────────────────────────────────────────────────────
+
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    container_name: invoiceflow-prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks: [public, private]
+    depends_on:
+      - api
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.61.0
+    container_name: invoiceflow-redis-exporter
+    environment:
+      REDIS_ADDR: redis://redis:6379
+    networks: [private]
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    container_name: invoiceflow-postgres-exporter
+    environment:
+      DATA_SOURCE_NAME: "postgresql://postgres:postgres@db:5432/invoiceflow?sslmode=disable"
+    networks: [private]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  loki:
+    image: grafana/loki:3.0.0
+    container_name: invoiceflow-loki
+    command: -config.file=/etc/loki/loki-config.yml
+    volumes:
+      - ./loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki_data:/loki
+    ports:
+      - "3100:3100"
+    networks: [public, private]
+
+  # Tails Docker container logs and ships them to Loki.
+  # Needs the Docker socket to discover containers by name.
+  promtail:
+    image: grafana/promtail:3.0.0
+    container_name: invoiceflow-promtail
+    command: -config.file=/etc/promtail/promtail-config.yml
+    volumes:
+      - ./promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [private]
+    depends_on:
+      - loki
+
+  grafana:
+    image: grafana/grafana:11.0.0
+    container_name: invoiceflow-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3001:3000"
+    networks: [public, private]
+    depends_on:
+      - prometheus
+      - loki
+
 networks:
   public: {}
   private:
@@ -76,3 +160,6 @@ networks:
 volumes:
   db_data:
   redis_data:
+  prometheus_data:
+  loki_data:
+  grafana_data:

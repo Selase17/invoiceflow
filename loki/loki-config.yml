@@ -1,0 +1,66 @@
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+# ── Schema ─────────────────────────────────────────────────────────────────
+schema_config:
+  configs:
+    - from: "2024-01-01"
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+# ── Ingestion limits ───────────────────────────────────────────────────────
+limits_config:
+  # Allow out-of-order log ingestion up to 1 h (Docker log buffering can
+  # cause slight reordering between the API and worker containers).
+  ingestion_rate_mb: 4
+  ingestion_burst_size_mb: 8
+  # Retain logs for 30 days; adjust to taste.
+  retention_period: 720h
+
+# ── Compactor (handles retention) ─────────────────────────────────────────
+compactor:
+  working_directory: /loki/compactor
+  retention_enabled: true
+  retention_delete_delay: 2h
+  delete_request_store: filesystem
+
+# ── Ruler (log-derived alerting) ──────────────────────────────────────────
+# Lets you fire alerts from LogQL queries — useful for job_failed events
+# that may not surface cleanly in Prometheus metrics.
+ruler:
+  storage:
+    type: local
+    local:
+      directory: /loki/rules
+  rule_path: /loki/rules
+  enable_api: true
+
+# ── Query range ───────────────────────────────────────────────────────────
+query_range:
+  results_cache:
+    cache:
+      embedded_cache:
+        enabled: true
+        max_size_mb: 100
+
+analytics:
+  reporting_enabled: false

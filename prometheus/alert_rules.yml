@@ -1,0 +1,269 @@
+groups:
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # GROUP 1 — API golden signals
+  # Covers: latency, traffic, errors, saturation for the HTTP layer
+  # ═══════════════════════════════════════════════════════════════════════════
+  - name: api_golden_signals
+    rules:
+
+      # LATENCY — p99 of any route exceeds 1 s for 5 min
+      - alert: ApiHighLatencyP99
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum by (route, le) (
+              rate(invoiceflow_http_request_duration_seconds_bucket[5m])
+            )
+          ) > 1
+        for: 5m
+        labels:
+          severity: warning
+          signal: latency
+        annotations:
+          summary: "API p99 latency > 1 s on {{ $labels.route }}"
+          description: >
+            The 99th-percentile response time on route {{ $labels.route }}
+            has been above 1 second for 5 minutes (current: {{ $value | humanizeDuration }}).
+
+      # LATENCY — p99 exceeds 3 s → critical
+      - alert: ApiCriticalLatencyP99
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum by (route, le) (
+              rate(invoiceflow_http_request_duration_seconds_bucket[5m])
+            )
+          ) > 3
+        for: 2m
+        labels:
+          severity: critical
+          signal: latency
+        annotations:
+          summary: "API p99 latency > 3 s on {{ $labels.route }}"
+          description: >
+            Critical: p99 latency on {{ $labels.route }} exceeded 3 s
+            (current: {{ $value | humanizeDuration }}).
+
+      # TRAFFIC — request rate dropped to zero (dead API)
+      - alert: ApiNoTraffic
+        expr: |
+          sum(rate(invoiceflow_http_requests_total[5m])) == 0
+        for: 10m
+        labels:
+          severity: warning
+          signal: traffic
+        annotations:
+          summary: "API has received zero requests in 10 min"
+          description: >
+            No HTTP traffic has been recorded in the last 10 minutes.
+            The API may be down or unreachable.
+
+      # ERRORS — HTTP 5xx error rate > 5 %
+      - alert: ApiHighErrorRate
+        expr: |
+          sum(rate(invoiceflow_http_requests_total{status_code=~"5.."}[5m]))
+          /
+          sum(rate(invoiceflow_http_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          signal: errors
+        annotations:
+          summary: "API 5xx error rate > 5 %"
+          description: >
+            More than 5 % of requests are returning 5xx errors
+            (current rate: {{ $value | humanizePercentage }}).
+
+      # ERRORS — HTTP 5xx error rate > 20 % → critical
+      - alert: ApiCriticalErrorRate
+        expr: |
+          sum(rate(invoiceflow_http_requests_total{status_code=~"5.."}[5m]))
+          /
+          sum(rate(invoiceflow_http_requests_total[5m])) > 0.20
+        for: 2m
+        labels:
+          severity: critical
+          signal: errors
+        annotations:
+          summary: "API 5xx error rate > 20 %"
+          description: >
+            Critical: over 20 % of API requests are failing
+            (current rate: {{ $value | humanizePercentage }}).
+
+      # SATURATION — process heap (default metric from prom-client)
+      - alert: ApiHeapSaturation
+        expr: |
+          invoiceflow_nodejs_heap_size_used_bytes
+          / invoiceflow_nodejs_heap_size_total_bytes > 0.90
+        for: 5m
+        labels:
+          severity: warning
+          signal: saturation
+        annotations:
+          summary: "API Node.js heap is > 90 % full"
+          description: >
+            The API process is using over 90 % of its heap.
+            Consider investigating memory leaks or increasing container memory.
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # GROUP 2 — Worker / queue golden signals
+  # This is the primary concern: is the worker keeping up?
+  # Are jobs failing silently?
+  # ═══════════════════════════════════════════════════════════════════════════
+  - name: worker_golden_signals
+    rules:
+
+      # TRAFFIC — no jobs have been completed in 30 min during business hours
+      # The worker should be processing send-invoice jobs regularly. Silence
+      # here means jobs are stuck or the worker is dead.
+      - alert: WorkerNoJobsCompleted
+        expr: |
+          sum(rate(invoiceflow_bullmq_jobs_completed_total{queue="invoice-jobs"}[30m])) == 0
+        for: 30m
+        labels:
+          severity: warning
+          signal: traffic
+        annotations:
+          summary: "Worker has not completed any jobs in 30 min"
+          description: >
+            No invoice-jobs have been completed in 30 minutes.
+            The worker may be stalled, crashed, or the queue is empty.
+
+      # LATENCY — job processing time p95 exceeds 30 s
+      # PDF generation + email sending should be well under this.
+      - alert: WorkerHighJobLatency
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (job_name, le) (
+              rate(invoiceflow_bullmq_job_duration_seconds_bucket{queue="invoice-jobs"}[10m])
+            )
+          ) > 30
+        for: 5m
+        labels:
+          severity: warning
+          signal: latency
+        annotations:
+          summary: "Worker job p95 latency > 30 s for {{ $labels.job_name }}"
+          description: >
+            The 95th-percentile processing time for {{ $labels.job_name }} jobs
+            has been above 30 seconds for 5 minutes. PDF generation or SMTP
+            may be slow.
+
+      # ERRORS — any job failures in the last 5 min
+      # Even one silent failure is worth knowing about.
+      - alert: WorkerJobFailures
+        expr: |
+          sum by (job_name) (
+            increase(invoiceflow_bullmq_jobs_failed_total{queue="invoice-jobs"}[5m])
+          ) > 0
+        for: 1m
+        labels:
+          severity: warning
+          signal: errors
+        annotations:
+          summary: "Worker job failures detected: {{ $labels.job_name }}"
+          description: >
+            {{ $value }} {{ $labels.job_name }} job(s) have failed in the
+            last 5 minutes. Check Loki for job_failed log events.
+
+      # ERRORS — sustained failure rate > 10 % → critical
+      - alert: WorkerHighFailureRate
+        expr: |
+          sum(rate(invoiceflow_bullmq_jobs_failed_total{queue="invoice-jobs"}[10m]))
+          /
+          (
+            sum(rate(invoiceflow_bullmq_jobs_completed_total{queue="invoice-jobs"}[10m]))
+            + sum(rate(invoiceflow_bullmq_jobs_failed_total{queue="invoice-jobs"}[10m]))
+          ) > 0.10
+        for: 5m
+        labels:
+          severity: critical
+          signal: errors
+        annotations:
+          summary: "Worker job failure rate > 10 %"
+          description: >
+            More than 10 % of invoice-jobs are failing
+            (current rate: {{ $value | humanizePercentage }}).
+
+      # SATURATION — queue depth: waiting jobs > 50
+      # This is the core "is the worker keeping up?" gauge.
+      # A growing waiting count means the worker cannot drain the queue.
+      - alert: QueueDepthHigh
+        expr: |
+          invoiceflow_bullmq_jobs_waiting{queue="invoice-jobs"} > 50
+        for: 5m
+        labels:
+          severity: warning
+          signal: saturation
+        annotations:
+          summary: "invoice-jobs queue depth > 50 waiting jobs"
+          description: >
+            {{ $value }} jobs are waiting in the invoice-jobs queue.
+            The worker may not be keeping up with the load.
+
+      # SATURATION — queue depth critical
+      - alert: QueueDepthCritical
+        expr: |
+          invoiceflow_bullmq_jobs_waiting{queue="invoice-jobs"} > 200
+        for: 2m
+        labels:
+          severity: critical
+          signal: saturation
+        annotations:
+          summary: "invoice-jobs queue critically backed up (> 200)"
+          description: >
+            {{ $value }} jobs are waiting. The worker is not keeping up.
+            Investigate worker crashes or scale out worker replicas.
+
+      # SATURATION — failed job backlog growing (jobs stuck in failed state)
+      # BullMQ keeps failed jobs in Redis — a growing failed set means
+      # jobs are not being retried or cleared: silent failure accumulation.
+      - alert: FailedJobBacklogGrowing
+        expr: |
+          invoiceflow_bullmq_jobs_failed_backlog{queue="invoice-jobs"} > 10
+        for: 10m
+        labels:
+          severity: warning
+          signal: saturation
+        annotations:
+          summary: "Failed job backlog > 10 in invoice-jobs"
+          description: >
+            {{ $value }} jobs are sitting in the failed state.
+            These are not retried automatically once retry attempts are
+            exhausted. Investigate and manually re-queue or resolve.
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # GROUP 3 — Infrastructure saturation
+  # ═══════════════════════════════════════════════════════════════════════════
+  - name: infrastructure_saturation
+    rules:
+
+      # Redis memory saturation
+      - alert: RedisMemoryHigh
+        expr: |
+          redis_memory_used_bytes / redis_memory_max_bytes > 0.80
+        for: 5m
+        labels:
+          severity: warning
+          signal: saturation
+        annotations:
+          summary: "Redis memory usage > 80 %"
+          description: >
+            Redis is using {{ $value | humanizePercentage }} of its maxmemory.
+            When full, BullMQ enqueue operations will start failing.
+
+      # Postgres connection saturation
+      - alert: PostgresConnectionsSaturation
+        expr: |
+          sum(pg_stat_activity_count) / sum(pg_settings_max_connections) > 0.80
+        for: 5m
+        labels:
+          severity: warning
+          signal: saturation
+        annotations:
+          summary: "Postgres connection pool > 80 % full"
+          description: >
+            {{ $value | humanizePercentage }} of Postgres connections are in use.
+            Both the API and the worker share this pool.

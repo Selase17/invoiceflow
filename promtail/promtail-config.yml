@@ -1,0 +1,95 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  # Stores the last-read position for each log file so Promtail does not
+  # re-send logs after a restart.
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+
+  # ── API container logs ─────────────────────────────────────────────────────
+  # The API logger emits structured JSON. The pipeline below parses each line
+  # so Loki stores individual fields (level, event, route, status_code…) as
+  # labels and structured metadata rather than a single opaque string.
+  - job_name: invoiceflow_api
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 10s
+        filters:
+          - name: name
+            values: ["invoiceflow-api"]
+    relabel_configs:
+      - source_labels: [__meta_docker_container_name]
+        target_label: container
+      - target_label: job
+        replacement: invoiceflow_api
+      - target_label: service
+        replacement: invoiceflow-api
+    pipeline_stages:
+      # 1. Parse the JSON line emitted by src/logger.js
+      - json:
+          expressions:
+            level:     level
+            event:     event
+            service:   service
+            route:     route        # present on HTTP middleware logs
+            status:    status_code  # present on HTTP middleware logs
+            invoice_id: invoice_id  # present on invoice_* events
+            error:     error        # present on *_failed events
+      # 2. Promote the most useful fields to Loki labels for fast filtering
+      - labels:
+          level:
+          event:
+          service:
+      # 3. Use the log's own timestamp instead of ingestion time
+      - timestamp:
+          source: timestamp
+          format: RFC3339Nano
+      # 4. Drop the default /var/log path label — it's meaningless here
+      - labeldrop:
+          - filename
+
+  # ── Worker container logs ──────────────────────────────────────────────────
+  # Identical pipeline; service label differs so dashboards can split them.
+  # Key events to watch for: job_completed, job_failed, invoice_sent,
+  # overdue_check_completed, worker_started.
+  - job_name: invoiceflow_worker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 10s
+        filters:
+          - name: name
+            values: ["invoiceflow-worker"]
+    relabel_configs:
+      - source_labels: [__meta_docker_container_name]
+        target_label: container
+      - target_label: job
+        replacement: invoiceflow_worker
+      - target_label: service
+        replacement: invoiceflow-worker
+    pipeline_stages:
+      - json:
+          expressions:
+            level:      level
+            event:      event
+            service:    service
+            job_id:     job_id
+            job_name:   job_name
+            invoice_id: invoice_id
+            error:      error
+            marked_overdue: marked_overdue
+      - labels:
+          level:
+          event:
+          service:
+          job_name:
+      - timestamp:
+          source: timestamp
+          format: RFC3339Nano
+      - labeldrop:
+          - filename

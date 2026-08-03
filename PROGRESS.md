@@ -71,3 +71,66 @@ clean re-initialization from an empty state.
 
 ### Still to do
 - Write the GitHub Actions CI/CD pipeline for this project
+
+## 2026-08-03 / 2026-08-04
+
+**Built a full observability stack for InvoiceFlow** — Prometheus, Loki,
+Promtail, Grafana, plus dedicated exporters for Redis and Postgres.
+Designed a real dashboard covering API golden signals (traffic, errors,
+latency, Node.js heap/event-loop saturation), a dedicated "is the worker
+keeping up" section (queue depth, job completions/failures, job duration),
+and infrastructure saturation panels — plus a matching set of Prometheus
+alert rules across all three areas.
+
+**Fixed a genuine gap from the review**: the HTTP middleware in
+`src/index.js` was updating Prometheus metrics but never logging anything,
+meaning Loki had no per-request visibility at all. Added a proper
+`logger[level]("http_request", {...})` call, with severity (`error`/`warn`/
+`info`) driven by the actual status code — verified with a real integration
+test before deploying.
+
+**Caught and replaced a nonexistent dependency before it ever got deployed**:
+the original design relied on `taskforcesh/bullmq-prometheus-exporter`,
+which doesn't exist as a public image (`docker compose up` failed with
+"pull access denied"). Rather than hunt for an unverified alternative,
+built real instrumentation directly into `src/worker.js` instead —
+`src/worker-metrics.js`, using BullMQ's own `getJobCounts()` API for queue
+depth and a real Histogram (wrapped in `try/finally` around the job
+processor) for job duration. Verified end-to-end with a real local Redis
+instance and real BullMQ jobs before handing it over — completions,
+failures, duration histogram, and queue depth gauges all confirmed correct
+against actual test data, not just code review.
+
+**Found and fixed four more real bugs while getting the stack running:**
+- Missing `prom-client` dependency (added to observability code, never
+  added to `package.json`) — caused both `api` and `worker` to crash-loop
+  on startup with `MODULE_NOT_FOUND`.
+- `package-lock.json` out of sync after the manual `package.json` edit —
+  `npm ci` correctly refused to install until the lock file was
+  regenerated with `npm install`.
+- Dashboard's datasource template variables used the wrong Grafana schema
+  field (`pluginId` instead of `query`), causing "No data sources found"
+  across every panel even though Prometheus and Loki were both working
+  correctly underneath. Fixed by hardcoding the known datasource UIDs
+  directly into every panel and removing the broken `templating` block.
+- Metric name mismatch between the dashboard/alert rules (bare `bullmq_*`)
+  and the actual instrumented metrics (`invoiceflow_bullmq_*` prefix) —
+  every Worker-row panel showed "No data" despite the underlying metrics
+  being scraped successfully. Fixed via targeted `sed` replacements,
+  verified with negative-lookbehind grep checks to confirm nothing was
+  left unprefixed.
+- Removed two non-functional Grafana environment variables
+  (`GF_DATASOURCES_DEFAULT_*`) that aren't real Grafana settings and were
+  silently doing nothing — real datasource provisioning was already
+  working correctly through the mounted `datasources.yml`.
+
+**Verified the complete stack against real traffic**: created multiple
+clients and invoices, sent them through the real worker pipeline, confirmed
+PDFs generated and emails arrived in Mailhog, and confirmed every dashboard
+panel — API golden signals, worker queue depth, job completions, job
+duration percentiles, Redis/Postgres saturation, and the Loki log explorer
+— populated with genuine, correct data traced back to specific real
+requests.
+
+### Still to do
+- Write the GitHub Actions CI/CD pipeline for this project

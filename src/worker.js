@@ -1,6 +1,8 @@
 // src/worker.js
 require("dotenv").config();
 
+
+const { jobsCompleted, jobsFailed, jobDuration, startMetricsServer } = require("./worker-metrics");
 const { Worker, Queue } = require("bullmq");
 const pool = require("./db");
 const logger = require("./logger");
@@ -17,53 +19,59 @@ const { sendInvoiceEmail } = require("./mailer");
 const worker = new Worker(
   "invoice-jobs",
   async (job) => {
-    if (job.name === "send-invoice") {
-      const { invoiceId } = job.data;
+    const timer = jobDuration.startTimer({ queue: "invoice-jobs", job_name: job.name });
+    try {
+      if (job.name === "send-invoice") {
+        const { invoiceId } = job.data;
 
-      const invoiceResult = await pool.query("SELECT * FROM invoices WHERE id = $1", [invoiceId]);
-      if (invoiceResult.rows.length === 0) {
-        throw new Error(`invoice ${invoiceId} not found`);
+        const invoiceResult = await pool.query("SELECT * FROM invoices WHERE id = $1", [invoiceId]);
+        if (invoiceResult.rows.length === 0) {
+          throw new Error(`invoice ${invoiceId} not found`);
+        }
+        const invoice = invoiceResult.rows[0];
+
+        const clientResult = await pool.query("SELECT * FROM clients WHERE id = $1", [invoice.client_id]);
+        const client = clientResult.rows[0];
+
+        const lineItemsResult = await pool.query(
+          "SELECT * FROM invoice_line_items WHERE invoice_id = $1",
+          [invoiceId]
+        );
+
+        const pdfBuffer = await generateInvoicePdf(invoice, client, lineItemsResult.rows);
+        await sendInvoiceEmail(client, invoice, pdfBuffer);
+
+        await pool.query(
+          "UPDATE invoices SET status = 'sent', sent_at = NOW() WHERE id = $1",
+          [invoiceId]
+        );
+
+        logger.info("invoice_sent", { invoice_id: invoiceId, client_email: client.email });
+        return { sent: true };
       }
-      const invoice = invoiceResult.rows[0];
 
-      const clientResult = await pool.query("SELECT * FROM clients WHERE id = $1", [invoice.client_id]);
-      const client = clientResult.rows[0];
-
-      const lineItemsResult = await pool.query(
-        "SELECT * FROM invoice_line_items WHERE invoice_id = $1",
-        [invoiceId]
-      );
-
-      const pdfBuffer = await generateInvoicePdf(invoice, client, lineItemsResult.rows);
-      await sendInvoiceEmail(client, invoice, pdfBuffer);
-
-      await pool.query(
-        "UPDATE invoices SET status = 'sent', sent_at = NOW() WHERE id = $1",
-        [invoiceId]
-      );
-
-      logger.info("invoice_sent", { invoice_id: invoiceId, client_email: client.email });
-      return { sent: true };
-    }
-
-    if (job.name === "check-overdue") {
-      const result = await pool.query(
-        `UPDATE invoices SET status = 'overdue'
-         WHERE status = 'sent' AND due_date < CURRENT_DATE
-         RETURNING id`
-      );
-      logger.info("overdue_check_completed", { marked_overdue: result.rows.length });
-      return { marked_overdue: result.rows.length };
+      if (job.name === "check-overdue") {
+        const result = await pool.query(
+          `UPDATE invoices SET status = 'overdue'
+           WHERE status = 'sent' AND due_date < CURRENT_DATE
+           RETURNING id`
+        );
+        logger.info("overdue_check_completed", { marked_overdue: result.rows.length });
+        return { marked_overdue: result.rows.length };
+      }
+    } finally {
+      timer();
     }
   },
   { connection }
 );
-
 worker.on("completed", (job) => {
+  jobsCompleted.inc({ queue: job.queueName, job_name: job.name });
   logger.info("job_completed", { job_id: job.id, job_name: job.name });
 });
 
 worker.on("failed", (job, err) => {
+  jobsFailed.inc({ queue: job.queueName, job_name: job.name });
   logger.error("job_failed", { job_id: job?.id, job_name: job?.name, error: err.message });
 });
 
@@ -80,5 +88,6 @@ async function scheduleRecurringJobs() {
 }
 
 scheduleRecurringJobs();
+startMetricsServer(invoiceQueue, 9100);
 
 logger.info("worker_started");

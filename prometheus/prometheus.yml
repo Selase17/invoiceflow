@@ -1,0 +1,47 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+alerting:
+  alertmanagers: []   # wire up Alertmanager here when you add one
+
+rule_files:
+  - /etc/prometheus/alert_rules.yml
+
+scrape_configs:
+  # ── API: prom-client exposes /metrics on port 3000 ─────────────────────────
+  - job_name: invoiceflow_api
+    static_configs:
+      - targets: ["api:3000"]
+        labels:
+          service: invoiceflow-api
+    metrics_path: /metrics
+
+  # ── Worker queue depth: bullmq-prometheus sidecar on port 9090 ─────────────
+  # Connects to Redis and exports waiting/active/delayed/failed job counts as
+  # Prometheus gauges. Answers "is the worker keeping up with the queue?"
+  # without touching worker.js at all.
+  - job_name: invoiceflow_worker_queue
+    static_configs:
+      - targets: ["worker:9100"]
+        labels:
+          service: invoiceflow-worker
+
+  # ── Redis: redis_exporter for memory/connection saturation ─────────────────
+  - job_name: redis
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+        labels:
+          service: redis
+
+  # ── Postgres: pg_stat_* for DB saturation signals ──────────────────────────
+  - job_name: postgres
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+        labels:
+          service: postgres
+
+  # ── Prometheus self-monitoring ─────────────────────────────────────────────
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
