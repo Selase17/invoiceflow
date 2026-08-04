@@ -1,4 +1,9 @@
 // src/worker.js
+
+require("./tracing");
+const { trace, context, propagation } = require("@opentelemetry/api");
+const tracer = trace.getTracer("invoiceflow-worker");
+
 require("dotenv").config();
 
 
@@ -20,51 +25,67 @@ const worker = new Worker(
   "invoice-jobs",
   async (job) => {
     const timer = jobDuration.startTimer({ queue: "invoice-jobs", job_name: job.name });
-    try {
-      if (job.name === "send-invoice") {
-        const { invoiceId } = job.data;
+    const parentContext = job.data.traceContext
+      ? propagation.extract(context.active(), job.data.traceContext)
+      : context.active();
 
-        const invoiceResult = await pool.query("SELECT * FROM invoices WHERE id = $1", [invoiceId]);
-        if (invoiceResult.rows.length === 0) {
-          throw new Error(`invoice ${invoiceId} not found`);
-        }
-        const invoice = invoiceResult.rows[0];
-
-        const clientResult = await pool.query("SELECT * FROM clients WHERE id = $1", [invoice.client_id]);
-        const client = clientResult.rows[0];
-
-        const lineItemsResult = await pool.query(
-          "SELECT * FROM invoice_line_items WHERE invoice_id = $1",
-          [invoiceId]
-        );
-
-        const pdfBuffer = await generateInvoicePdf(invoice, client, lineItemsResult.rows);
-        await sendInvoiceEmail(client, invoice, pdfBuffer);
-
-        await pool.query(
-          "UPDATE invoices SET status = 'sent', sent_at = NOW() WHERE id = $1",
-          [invoiceId]
-        );
-
-        logger.info("invoice_sent", { invoice_id: invoiceId, client_email: client.email });
-        return { sent: true };
+      try {
+        return await context.with(parentContext, async () => {
+          if (job.name === "send-invoice") {
+            const { invoiceId } = job.data;
+  
+            const invoiceResult = await tracer.startActiveSpan("fetch_invoice_data", async (span) => {
+              const result = await pool.query("SELECT * FROM invoices WHERE id = $1", [invoiceId]);
+              span.end();
+              return result;
+            });
+            if (invoiceResult.rows.length === 0) throw new Error(`invoice ${invoiceId} not found`);
+            const invoice = invoiceResult.rows[0];
+  
+            const clientResult = await pool.query("SELECT * FROM clients WHERE id = $1", [invoice.client_id]);
+            const client = clientResult.rows[0];
+  
+            const lineItemsResult = await pool.query(
+              "SELECT * FROM invoice_line_items WHERE invoice_id = $1",
+              [invoiceId]
+            );
+  
+            const pdfBuffer = await tracer.startActiveSpan("generate_pdf", async (span) => {
+              const buf = await generateInvoicePdf(invoice, client, lineItemsResult.rows);
+              span.end();
+              return buf;
+            });
+  
+            await tracer.startActiveSpan("send_email", async (span) => {
+              await sendInvoiceEmail(client, invoice, pdfBuffer);
+              span.end();
+            });
+  
+            await pool.query(
+              "UPDATE invoices SET status = 'sent', sent_at = NOW() WHERE id = $1",
+              [invoiceId]
+            );
+  
+            logger.info("invoice_sent", { invoice_id: invoiceId, client_email: client.email });
+            return { sent: true };
+          }
+  
+          if (job.name === "check-overdue") {
+            const result = await pool.query(
+              `UPDATE invoices SET status = 'overdue' WHERE status = 'sent' AND due_date < CURRENT_DATE RETURNING id`
+            );
+            logger.info("overdue_check_completed", { marked_overdue: result.rows.length });
+            return { marked_overdue: result.rows.length };
+          }
+        });
+      } finally {
+        timer();
       }
+    },
+    { connection }
+  );
 
-      if (job.name === "check-overdue") {
-        const result = await pool.query(
-          `UPDATE invoices SET status = 'overdue'
-           WHERE status = 'sent' AND due_date < CURRENT_DATE
-           RETURNING id`
-        );
-        logger.info("overdue_check_completed", { marked_overdue: result.rows.length });
-        return { marked_overdue: result.rows.length };
-      }
-    } finally {
-      timer();
-    }
-  },
-  { connection }
-);
+  
 worker.on("completed", (job) => {
   jobsCompleted.inc({ queue: job.queueName, job_name: job.name });
   logger.info("job_completed", { job_id: job.id, job_name: job.name });

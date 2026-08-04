@@ -3,6 +3,7 @@ const express = require("express");
 const pool = require("../db");
 const logger = require("../logger");
 const { invoiceQueue } = require("../queue");
+const { context, propagation } = require("@opentelemetry/api");
 
 const router = express.Router();
 
@@ -83,7 +84,10 @@ router.post("/:id/send", async (req, res) => {
       return res.status(404).json({ error: "invoice not found" });
     }
 
-    await invoiceQueue.add("send-invoice", { invoiceId: Number(invoiceId) });
+    const traceContext = {};
+    propagation.inject(context.active(), traceContext);
+
+    await invoiceQueue.add("send-invoice", { invoiceId: Number(invoiceId), traceContext });
     logger.info("invoice_send_queued", { invoice_id: invoiceId });
     res.status(202).json({ status: "queued", invoice_id: invoiceId });
   } catch (err) {

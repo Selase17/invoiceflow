@@ -25,6 +25,8 @@ services:
       - /tmp
     command: ["npm", "run", "start:worker"]
     env_file: .env
+    environment:
+      SERVICE_NAME: invoiceflow-worker
     networks: [public, private]
     depends_on:
       db:
@@ -152,6 +154,14 @@ services:
       - prometheus
       - loki
 
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: invoiceflow-jaeger
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+    networks: [public, private]
+
 networks:
   public: {}
   private:
@@ -163,3 +173,4 @@ volumes:
   prometheus_data:
   loki_data:
   grafana_data:
+  jaeger_data:

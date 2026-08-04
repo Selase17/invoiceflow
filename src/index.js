@@ -1,4 +1,7 @@
 // src/index.js
+
+require("./tracing");
+
 require("dotenv").config();
 
 const express = require("express");
