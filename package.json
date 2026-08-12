@@ -5,7 +5,11 @@
   "main": "src/index.js",
   "scripts": {
     "start:api": "node src/index.js",
-    "start:worker": "node src/worker.js"
+    "start:worker": "node src/worker.js",
+    "test:unit": "node --test tests/unit/*.test.js",
+    "test:integration": "node --test tests/integration/*.test.js",
+    "test": "node --test tests/unit/*.test.js tests/integration/*.test.js",
+    "lint:syntax": "node --check src/index.js src/worker.js src/queue.js src/db.js src/logger.js src/mailer.js src/pdf.js src/routes/invoices.js src/routes/clients.js src/routes/expenses.js"
   },
   "dependencies": {
     "express": "^4.19.2",

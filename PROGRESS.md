@@ -132,5 +132,44 @@ duration percentiles, Redis/Postgres saturation, and the Loki log explorer
 — populated with genuine, correct data traced back to specific real
 requests.
 
+
+## 2026-08-04 (evening)
+
+**Added distributed tracing with Jaeger and OpenTelemetry** — the third
+observability pillar, completing logs, metrics, and now traces for
+InvoiceFlow. Wrapped `fetch_invoice_data`, `generate_pdf`, and `send_email`
+in `worker.js` with manual spans, on top of auto-instrumentation for
+Express, `pg`, and Redis.
+
+**Built and proved trace context propagation across the async BullMQ
+boundary before deploying it** — the interesting part, since `send-invoice`
+crosses a real gap between the API enqueueing a job and the worker picking
+it up later. Wrote a real test harness (real Redis, real BullMQ Queue and
+Worker, an in-memory span exporter) that injected trace context into job
+data on enqueue and extracted it on the worker side, then directly
+confirmed the child span's `parentSpanContext.spanId` matched the parent
+span's `spanId` exactly — genuine parent-child linkage, not just a
+coincidentally-shared trace ID.
+
+**Found and fixed a real bug once it was live**: every worker span was
+showing up under the `invoiceflow-api` service name in Jaeger instead of
+`invoiceflow-worker`. Root cause was `SERVICE_NAME=invoiceflow-api`
+hardcoded in the shared `.env` file, with `api` and `worker` both loading
+it via `env_file:` with nothing overriding the value for `worker`. Fixed
+by adding an `environment:` override specifically on the `worker` service,
+which takes precedence over `env_file:` for the same key.
+
+**Investigated an apparent performance issue, confirmed it wasn't one**:
+early traces showed `pg.connect` costing 30-56ms on both the API and
+worker sides, on every single request. Rather than assume this was a
+connection-pooling bug, tested it properly — sent three invoices in rapid
+succession with no delay between them, then checked the trace for the
+last one. `pg-pool.connect` dropped to under 1ms with no `pg.connect` span
+at all, confirming the pool was correctly reusing warm connections; the
+earlier cost was simply `pg.Pool`'s default 10-second idle timeout closing
+the connection between spaced-out manual test requests. No code change
+needed - correctly identified as expected behavior, not a defect.
+
+
 ### Still to do
 - Write the GitHub Actions CI/CD pipeline for this project

@@ -10,3 +10,11 @@ db/
 LICENSE
 .gitignore
 Dockerfile_Compose_Verification_Roadmap.md
+tests/
+.github/
+README.md
+PROGRESS.md
+prometheus/
+loki/
+promtail/
+grafana/

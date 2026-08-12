@@ -1,0 +1,420 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+# Cancel in-flight runs for the same branch on new pushes
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22"
+  IMAGE_TAG: invoiceflow:${{ github.sha }}
+  # Shared across all jobs that talk to the service containers
+  DB_HOST: localhost
+  DB_PORT: 5432
+  DB_NAME: invoiceflow
+  DB_USER: postgres
+  DB_PASSWORD: postgres
+  REDIS_HOST: localhost
+  REDIS_PORT: 6379
+  SMTP_HOST: localhost
+  SMTP_PORT: 1025
+  FROM_EMAIL: billing@invoiceflow.local
+  SERVICE_NAME: invoiceflow-api
+  PORT: 3000
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GATE 1 — Fast checks (no services needed; fail fast on cheap errors)
+# ─────────────────────────────────────────────────────────────────────────────
+jobs:
+  fast-checks:
+    name: "Fast checks (syntax · npm ci · config lint)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      # This exact step would have caught the prom-client/lock-file-sync bug
+      # automatically — npm ci hard-fails when package-lock.json is out of
+      # sync with package.json.
+      - name: "npm ci — verify lock-file integrity"
+        run: npm ci
+
+      # Cheap AST parse of every source file. Catches syntax errors and
+      # typos before anything else runs.
+      - name: "Syntax check all source files (node --check)"
+        run: npm run lint:syntax
+
+      - run: pip install pyyaml --quiet
+
+      # YAML lint on every config file that caused pain this session.
+      # python3 is always available on ubuntu-latest.
+      - name: "YAML lint — docker compose, prometheus, promtail, alert rules"
+        run: |
+          python3 - <<'EOF'
+          import yaml, sys, pathlib
+
+          files = [
+            "compose.yml",
+            "prometheus/prometheus.yml",
+            "prometheus/alert_rules.yml",
+            "promtail/promtail-config.yml",
+            "loki/loki-config.yml",
+          ]
+          errors = []
+          for f in files:
+            p = pathlib.Path(f)
+            if not p.exists():
+              print(f"  SKIP  {f}  (not found)")
+              continue
+            try:
+              yaml.safe_load(p.read_text())
+              print(f"  OK    {f}")
+            except yaml.YAMLError as e:
+              errors.append(f"{f}: {e}")
+              print(f"  FAIL  {f}: {e}")
+          if errors:
+            sys.exit(1)
+          EOF
+
+      # JSON lint on the Grafana dashboard. A malformed file would silently
+      # produce an empty dashboard after mounting.
+      - name: "JSON lint — Grafana dashboard"
+        run: |
+          node -e "
+            const fs = require('fs');
+            const f = 'grafana/dashboards/invoiceflow.json';
+            try {
+              JSON.parse(fs.readFileSync(f, 'utf8'));
+              console.log('  OK    ' + f);
+            } catch (e) {
+              console.error('  FAIL  ' + f + ': ' + e.message);
+              process.exit(1);
+            }
+          "
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GATE 2 — Unit tests (no network, no services)
+# ─────────────────────────────────────────────────────────────────────────────
+  unit-tests:
+    name: "Unit tests (total calc · route normalise · PDF columns)"
+    runs-on: ubuntu-latest
+    needs: fast-checks
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: "Run unit tests"
+        run: npm run test:unit
+
+      # PDF column-boundary geometric assertion: generate the bug-case PDF
+      # and use pdfplumber to verify no text element's right edge exceeds
+      # the 562pt printable boundary (612pt page - 50pt margin).
+      - name: "Install pdfplumber for geometric PDF assertion"
+        run: pip install pdfplumber --quiet
+
+      - name: "PDF column boundary — assert no text past x=562"
+        run: |
+          python3 - <<'EOF'
+          import pdfplumber, io, subprocess, json, sys
+
+          # Generate the bug-case PDF via Node
+          script = """
+          const { generateInvoicePdf } = require('./src/pdf.js');
+          const invoice   = { id: 1, due_date: '2026-12-31' };
+          const client    = { name: 'Acme', email: 'a@b.com' };
+          const lineItems = [
+            { description: 'Enterprise license', quantity: 9999, unit_price_cents: 9999999 }
+          ];
+          generateInvoicePdf(invoice, client, lineItems).then(buf => {
+            process.stdout.write(buf);
+          });
+          """
+          result = subprocess.run(
+            ["node", "-e", script],
+            capture_output=True, check=True
+          )
+          pdf_bytes = result.stdout
+
+          RIGHT_MARGIN = 562  # 612pt page width - 50pt margin
+
+          failures = []
+          with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            for page_num, page in enumerate(pdf.pages, start=1):
+              for word in page.extract_words():
+                right_edge = word["x1"]
+                if right_edge > RIGHT_MARGIN:
+                  failures.append(
+                    f"Page {page_num}: '{word['text']}' right edge = "
+                    f"{right_edge:.1f}pt > {RIGHT_MARGIN}pt"
+                  )
+
+          if failures:
+            print("COLUMN BOUNDARY FAILURES:")
+            for f in failures:
+              print(f"  {f}")
+            sys.exit(1)
+          else:
+            print(f"OK — all text within {RIGHT_MARGIN}pt right boundary")
+          EOF
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GATE 3 — Integration tests (real Postgres + Redis + MailHog via services:)
+# ─────────────────────────────────────────────────────────────────────────────
+  integration-tests:
+    name: "Integration tests (API routes · async worker flow)"
+    runs-on: ubuntu-latest
+    needs: unit-tests
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: invoiceflow
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      mailhog:
+        image: mailhog/mailhog
+        ports:
+          - 1025:1025
+          - 8025:8025
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: "Install postgresql-client"
+        run: sudo apt-get update -qq && sudo apt-get install -y postgresql-client
+
+      # Apply the database schema before any test touches Postgres
+      - name: "Apply database schema"
+        run: |
+          PGPASSWORD=$DB_PASSWORD psql \
+            -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME \
+            -f db/schema.sql
+
+      # Start the API server in the background. The integration tests poll
+      # /health until it's ready, so there's no need to sleep here.
+      - name: "Start API server"
+        run: node src/index.js &
+
+      # Start the worker in the background. The worker-flow test waits up to
+      # 20 s for jobs to complete, which is plenty for a CI environment.
+      - name: "Start worker"
+        run: node src/worker.js &
+
+      - name: "Wait for API to be ready"
+        run: |
+          for i in $(seq 1 15); do
+            curl -sf http://localhost:3000/health && break
+            sleep 1
+          done
+
+      - name: "Run integration tests"
+        run: npm run test:integration
+
+      # GET /ready with Postgres intentionally unreachable — verify it returns
+      # 503, not 500 or a crash. We point the env var at a wrong port so the
+      # API's pool.query("SELECT 1") fails without touching the real DB.
+      - name: "GET /ready returns 503 when Postgres is unreachable"
+        run: |
+          # Kill the current server and restart it pointing at a bad DB port
+          pkill -f "node src/index.js" || true
+          sleep 1
+          DB_PORT=9999 node src/index.js &
+          # Wait for the server to come up (it will, just with a bad DB config)
+          sleep 3
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/ready)
+          if [ "$STATUS" != "503" ]; then
+            echo "Expected 503 from /ready with bad DB, got $STATUS"
+            exit 1
+          fi
+          echo "OK — /ready returned 503 with unreachable Postgres"
+          # Restore for any subsequent steps
+          pkill -f "node src/index.js" || true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GATE 4 — Docker build validation
+# ─────────────────────────────────────────────────────────────────────────────
+  docker-build:
+    name: "Docker build validation (build · non-root · .dockerignore)"
+    runs-on: ubuntu-latest
+    needs: fast-checks  # run in parallel with unit/integration
+    steps:
+      - uses: actions/checkout@v4
+
+      # Build the shared image once; both api and worker use it
+      - name: "Build Docker image"
+        run: docker build -t ${{ env.IMAGE_TAG }} .
+
+      # The API default CMD — confirm the process starts and the server
+      # responds on /health within 10 s
+      - name: "API container starts and passes /health"
+        run: |
+          CID=$(docker run -d --network host \
+            -e DB_HOST=localhost -e REDIS_HOST=localhost \
+            -e PORT=3001 \
+            ${{ env.IMAGE_TAG }})
+          # Give Node 5 s to start (no real DB needed — /health has no DB dep)
+          sleep 5
+          STATUS=$(curl -sf -o /dev/null -w "%{http_code}" http://localhost:3001/health || echo "000")
+          docker rm -f "$CID" >/dev/null
+          if [ "$STATUS" != "200" ]; then
+            echo "Expected 200 from /health, got $STATUS"
+            exit 1
+          fi
+          echo "OK — API container /health returned 200"
+
+      # Worker container starts with the command: override from compose.yml,
+      # and stays alive even though Redis isn't reachable (ioredis retries
+      # in the background rather than crashing).
+      - name: "Worker container starts with correct process"
+        run: |
+          CID=$(docker run -d --network host \
+            -e DB_HOST=localhost -e REDIS_HOST=localhost \
+            $IMAGE_TAG npm run start:worker)
+          sleep 3
+          RUNNING=$(docker inspect -f '{{.State.Running}}' "$CID")
+          docker logs "$CID"
+          docker rm -f "$CID" >/dev/null
+          if [ "$RUNNING" != "true" ]; then
+            echo "FAIL: worker exited unexpectedly"
+            exit 1
+          fi
+          echo "OK — worker started via command override and stayed running"
+
+      # Security: the container must not run as root.
+      # The Dockerfile adds 'nodejs' at uid 1007.
+      - name: "Non-root user check (must not be root)"
+        run: |
+          UID_OUTPUT=$(docker run --rm ${{ env.IMAGE_TAG }} id -u)
+          if [ "$UID_OUTPUT" = "0" ]; then
+            echo "FAIL: container is running as root (uid 0)"
+            exit 1
+          fi
+          echo "OK — container runs as uid $UID_OUTPUT (not root)"
+
+      # .dockerignore effectiveness: .env, .git, and node_modules must not
+      # be present inside the built image.
+      - name: ".dockerignore — verify .env, .git, node_modules excluded"
+        run: |
+          FAIL=0
+          for path in ".env" ".git" "node_modules"; do
+            EXISTS=$(docker run --rm ${{ env.IMAGE_TAG }} \
+              sh -c "[ -e /app/$path ] && echo yes || echo no")
+            if [ "$EXISTS" = "yes" ]; then
+              echo "FAIL: /app/$path exists inside the image — .dockerignore is not working"
+              FAIL=1
+            else
+              echo "OK   — /app/$path is excluded from the image"
+            fi
+          done
+          exit $FAIL
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GATE 5 — Security scanning (runs after build is confirmed good)
+# ─────────────────────────────────────────────────────────────────────────────
+  security-scan:
+    name: "Security scanning (Trivy · npm audit)"
+    runs-on: ubuntu-latest
+    needs: docker-build
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      # Rebuild the image in this job (cheaper than cross-job artifact passing
+      # for an image of this size — if it becomes slow, switch to docker save)
+      - name: "Rebuild image for scanning"
+        run: docker build -t ${{ env.IMAGE_TAG }} .
+
+      # Trivy: CRITICAL or HIGH vulnerabilities are a hard gate.
+      # Results are also uploaded as SARIF for GitHub Security tab visibility.
+      - name: "Install Trivy"
+        run: |
+          sudo apt-get install -y wget apt-transport-https gnupg lsb-release
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key \
+            | sudo apt-key add -
+          echo "deb https://aquasecurity.github.io/trivy-repo/deb \
+            $(lsb_release -sc) main" \
+            | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update -qq
+          sudo apt-get install -y trivy
+
+      - name: "Trivy image scan (CRITICAL/HIGH hard gate)"
+        run: |
+          trivy image \
+            --exit-code 1 \
+            --severity CRITICAL,HIGH \
+            --no-progress \
+            --format table \
+            ${{ env.IMAGE_TAG }}
+
+      - name: "Trivy SARIF upload (Security tab)"
+        if: always()  # upload even when the scan fails, for visibility
+        run: |
+          trivy image \
+            --exit-code 0 \
+            --severity CRITICAL,HIGH,MEDIUM \
+            --no-progress \
+            --format sarif \
+            --output trivy-results.sarif \
+            ${{ env.IMAGE_TAG }}
+
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-results.sarif
+        continue-on-error: true  # SARIF upload needs Advanced Security; degrade gracefully
+
+      # npm audit: any HIGH or CRITICAL vulnerability in the dependency tree
+      # is a hard gate. --audit-level=high means it only fails on high+.
+      - name: "npm audit (HIGH/CRITICAL hard gate)"
+        run: npm audit --audit-level=high
+        # If you need to acknowledge a specific CVE temporarily:
+        #   npm audit --audit-level=high --omit=dev
+        # Document the reason in a comment here before merging any waiver.
