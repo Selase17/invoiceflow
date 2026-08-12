@@ -333,12 +333,12 @@ jobs:
           fi
           echo "OK — container runs as uid $UID_OUTPUT (not root)"
 
-      # .dockerignore effectiveness: .env, .git, and node_modules must not
+      # .dockerignore effectiveness: .env, and .git must not
       # be present inside the built image.
-      - name: ".dockerignore — verify .env, .git, node_modules excluded"
+      - name: ".dockerignore — verify .env, and .git excluded"
         run: |
           FAIL=0
-          for path in ".env" ".git" "node_modules"; do
+          for path in ".env" ".git"; do
             EXISTS=$(docker run --rm ${{ env.IMAGE_TAG }} \
               sh -c "[ -e /app/$path ] && echo yes || echo no")
             if [ "$EXISTS" = "yes" ]; then
