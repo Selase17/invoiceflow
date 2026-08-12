@@ -98,10 +98,6 @@ describe("Worker: send-invoice job", () => {
     invoiceId = await createDraftInvoice(clientId);
   });
 
-  after(async () => {
-    await pool.end();
-    await queue.close();
-  });
 
   it("flips invoice status to 'sent' and sets sent_at after the worker processes the job", async () => {
     // Pre-condition: invoice starts as 'draft'
@@ -169,4 +165,11 @@ describe("Worker: check-overdue job", () => {
       `Invoice ${invoiceId} (due 2020-01-01) was not marked 'overdue' within 20 s.`
     );
   });
+});
+
+// File-level teardown - runs once, after BOTH describe blocks have
+// fully completed, not after just the first one.
+after(async () => {
+  await pool.end();
+  await queue.close();
 });

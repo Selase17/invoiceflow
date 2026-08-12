@@ -51,7 +51,7 @@ async function waitForServer(retries = 30, delayMs = 500) {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe("GET /health", () => {
-  before(waitForServer);
+  before(() => waitForServer());
 
   it("returns 200 with status: alive", async () => {
     const { status, body } = await get("/health");
@@ -61,7 +61,7 @@ describe("GET /health", () => {
 });
 
 describe("GET /ready", () => {
-  before(waitForServer);
+  before(() => waitForServer());
 
   it("returns 200 when Postgres is reachable", async () => {
     const { status, body } = await get("/ready");
@@ -71,7 +71,7 @@ describe("GET /ready", () => {
 });
 
 describe("POST /clients", () => {
-  before(waitForServer);
+  before(() => waitForServer());
 
   it("returns 400 when name is missing", async () => {
     const { status, body } = await post("/clients", { email: "x@example.com" });
