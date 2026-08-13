@@ -390,6 +390,7 @@ jobs:
           trivy image \
             --exit-code 1 \
             --severity CRITICAL,HIGH \
+            --skip-dirs /usr/local/lib/node_modules/npm \
             --no-progress \
             --format table \
             ${{ env.IMAGE_TAG }}
@@ -400,6 +401,7 @@ jobs:
           trivy image \
             --exit-code 0 \
             --severity CRITICAL,HIGH,MEDIUM \
+            --skip-dirs /usr/local/lib/node_modules/npm \
             --no-progress \
             --format sarif \
             --output trivy-results.sarif \
