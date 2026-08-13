@@ -354,6 +354,10 @@ jobs:
 # GATE 5 — Security scanning (runs after build is confirmed good)
 # ─────────────────────────────────────────────────────────────────────────────
   security-scan:
+    permissions:
+      security-events: write
+      contents: read
+    
     name: "Security scanning (Trivy · npm audit)"
     runs-on: ubuntu-latest
     needs: docker-build
