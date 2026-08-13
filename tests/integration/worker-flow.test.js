@@ -17,6 +17,29 @@
 //   - MailHog running on SMTP_HOST:1025 (the worker's mailer points here)
 //   - The worker process already started (ci.yml does: node src/worker.js &)
 
+
+//
+// IMPORTANT — these tests require a REAL worker process consuming from the
+// SAME Redis/Postgres instances this file connects to. That only happens
+// reliably in two places:
+//
+//   1. CI (ci.yml) — spins up fresh Postgres/Redis service containers AND
+//      starts `node src/worker.js &` in the same job, all on `localhost`.
+//      This is the primary, always-correct way these tests run.
+//
+//   2. NOT via bare `npm run test:integration` on a dev machine pointed at
+//      Docker Compose's db/redis — those services are deliberately on the
+//      `private` (internal-only) network with no host port published, so
+//      they're unreachable from outside the Compose network. This is a
+//      security choice (network segmentation), not an oversight, and it's
+//      not worth weakening just to make this file runnable standalone.
+//
+// If you need to manually verify the worker flow locally, do it the way
+// this whole project always has: run `docker compose up -d`, then create
+// and send a real invoice via curl against the running api service, and
+// check the worker's logs / Jaeger / Mailhog directly.
+//
+
 "use strict";
 
 require("dotenv").config();
