@@ -14,6 +14,7 @@ concurrency:
 env:
   NODE_VERSION: "22"
   IMAGE_TAG: invoiceflow:${{ github.sha }}
+  FRONTEND_IMAGE_TAG: invoiceflow-frontend:${{ github.sha }}
   # Shared across all jobs that talk to the service containers
   DB_HOST: localhost
   DB_PORT: 5432
@@ -101,6 +102,16 @@ jobs:
               process.exit(1);
             }
           "
+
+      # Frontend has its own package.json/lockfile — install and build it
+      # here so a broken build fails fast, before any service-backed jobs run.
+      - name: "npm ci — frontend"
+        run: npm ci
+        working-directory: frontend
+
+      - name: "Build frontend (vite build)"
+        run: npm run build
+        working-directory: frontend
 
 # ─────────────────────────────────────────────────────────────────────────────
 # GATE 2 — Unit tests (no network, no services)
@@ -350,6 +361,35 @@ jobs:
           done
           exit $FAIL
 
+      # Frontend: static Vite build served by its own nginx image (see
+      # frontend/Dockerfile). Build it and confirm it actually serves —
+      # both the index route and a client-side route that only exists
+      # because of the SPA fallback (try_files ... /index.html) in
+      # frontend/nginx.conf.
+      - name: "Build frontend Docker image"
+        run: docker build -t ${{ env.FRONTEND_IMAGE_TAG }} ./frontend
+
+      - name: "Frontend container serves the SPA"
+        run: |
+          CID=$(docker run -d --network host ${{ env.FRONTEND_IMAGE_TAG }})
+          for i in $(seq 1 10); do
+            curl -sf http://localhost:80/ >/dev/null && break
+            sleep 1
+          done
+          INDEX_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:80/)
+          SPA_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:80/invoices)
+          docker logs "$CID"
+          docker rm -f "$CID" >/dev/null
+          if [ "$INDEX_STATUS" != "200" ]; then
+            echo "Expected 200 from /, got $INDEX_STATUS"
+            exit 1
+          fi
+          if [ "$SPA_STATUS" != "200" ]; then
+            echo "Expected 200 from /invoices (SPA fallback), got $SPA_STATUS"
+            exit 1
+          fi
+          echo "OK — frontend served index.html and the client-side route fallback"
+
 # ─────────────────────────────────────────────────────────────────────────────
 # GATE 5 — Security scanning (runs after build is confirmed good)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -415,6 +455,7 @@ jobs:
         if: always()
         with:
           sarif_file: trivy-results.sarif
+          category: api
         continue-on-error: true  # SARIF upload needs Advanced Security; degrade gracefully
 
       # npm audit: any HIGH or CRITICAL vulnerability in the dependency tree
@@ -424,3 +465,50 @@ jobs:
         # If you need to acknowledge a specific CVE temporarily:
         #   npm audit --audit-level=high --omit=dev
         # Document the reason in a comment here before merging any waiver.
+
+      # Frontend image: same CRITICAL/HIGH hard gate as the API image.
+      - name: "Rebuild frontend image for scanning"
+        run: docker build -t ${{ env.FRONTEND_IMAGE_TAG }} ./frontend
+
+      - name: "Trivy image scan — frontend (CRITICAL/HIGH hard gate)"
+        run: |
+          trivy image \
+            --exit-code 1 \
+            --severity CRITICAL,HIGH \
+            --skip-dirs /usr/local/lib/node_modules/npm \
+            --no-progress \
+            --format table \
+            ${{ env.FRONTEND_IMAGE_TAG }}
+
+      - name: "Trivy SARIF upload — frontend (Security tab)"
+        if: always()
+        run: |
+          trivy image \
+            --exit-code 0 \
+            --severity CRITICAL,HIGH,MEDIUM \
+            --skip-dirs /usr/local/lib/node_modules/npm \
+            --no-progress \
+            --format sarif \
+            --output trivy-results-frontend.sarif \
+            ${{ env.FRONTEND_IMAGE_TAG }}
+
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-results-frontend.sarif
+          category: frontend
+        continue-on-error: true
+
+      - name: "npm ci — frontend"
+        run: npm ci
+        working-directory: frontend
+
+      # --omit=dev excludes vite/esbuild (devDependencies only — the
+      # frontend Dockerfile's final stage copies just the built dist/
+      # output into nginx, so neither ships in the production image).
+      # Without it this gate would hard-fail on a dev-server-only advisory
+      # that has no production exposure. react-router-dom (a real prod
+      # dependency) is still audited.
+      - name: "npm audit — frontend (HIGH/CRITICAL hard gate on production deps)"
+        run: npm audit --audit-level=high --omit=dev
+        working-directory: frontend
