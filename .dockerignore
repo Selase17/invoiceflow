@@ -19,3 +19,4 @@ prometheus/
 loki/
 promtail/
 grafana/
+nginx/
