@@ -1,0 +1,17 @@
+# compose.prod.yml
+# Used only for deployment. Overlays compose.yml, replacing every 'build:'
+# with a real 'image:' reference - ensures the exact image CI tested and
+# scanned is what actually runs, never rebuilt locally at deploy time.
+
+services:
+  api:
+    image: ghcr.io/selase17/invoiceflow-api:${IMAGE_TAG}
+    build: !reset null
+
+  worker:
+    image: ghcr.io/selase17/invoiceflow-worker:${IMAGE_TAG}
+    build: !reset null
+
+  frontend:
+    image: ghcr.io/selase17/invoiceflow-frontend:${IMAGE_TAG}
+    build: !reset null

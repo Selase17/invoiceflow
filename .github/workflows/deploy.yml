@@ -1,0 +1,21 @@
+deploy-to-production:
+  needs: promote-to-production
+  runs-on: self-hosted
+  environment: production
+  steps:
+    - name: "Pull promoted images and redeploy"
+      working-directory: /home/pasel/invoiceflow
+      env:
+        IMAGE_TAG: prod
+      run: |
+        docker compose -f compose.yml -f compose.prod.yml pull api worker frontend
+        docker compose -f compose.yml -f compose.prod.yml up -d db redis
+        sleep 5
+
+    - name: "Apply database migrations"
+      working-directory: /home/pasel/invoiceflow
+      run: docker compose exec -T api npm run migrate:up
+
+    - name: "Bring up the rest of the stack"
+      working-directory: /home/pasel/invoiceflow
+      run: docker compose -f compose.yml -f compose.prod.yml up -d
