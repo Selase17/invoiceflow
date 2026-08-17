@@ -536,7 +536,7 @@ jobs:
         with:
           context: .
           push: true
-          tags: ghcr.io/${{ github.repository_owner | lower }}}/invoiceflow-api:${{ github.sha }}
+          tags: ghcr.io/${{ github.repository_owner | lower }}/invoiceflow-api:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -572,9 +572,9 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - run: |
           for svc in api worker frontend; do
-            docker pull ghcr.io/selase17/invoiceflow-$svc:${{ github.sha }}
-            docker tag ghcr.io/selase17/invoiceflow-$svc:${{ github.sha }} ghcr.io/selase17/invoiceflow-$svc:staging
-            docker push ghcr.io/selase17/invoiceflow-$svc:staging
+            docker pull ghcr.io/${{ github.repository_owner | lower }}/invoiceflow-$svc:${{ github.sha }}
+            docker tag ghcr.io/${{ github.repository_owner | lower }}/invoiceflow-$svc:${{ github.sha }} ghcr.io/${{ github.repository_owner | lower }}/invoiceflow-$svc:staging
+            docker push ghcr.io/${{ github.repository_owner | lower }}/invoiceflow-$svc:staging
           done
 
   deploy-to-staging:
@@ -624,9 +624,9 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - run: |
           for svc in api worker frontend; do
-            docker pull ghcr.io/selase17/invoiceflow-$svc:${{ github.sha }}
-            docker tag ghcr.io/selase17/invoiceflow-$svc:${{ github.sha }} ghcr.io/selase17/invoiceflow-$svc:prod
-            docker push ghcr.io/selase17/invoiceflow-$svc:prod
+            docker pull ghcr.io/${{ github.repository_owner | lower }}/invoiceflow-$svc:${{ github.sha }}
+            docker tag ghcr.io/${{ github.repository_owner | lower }}/invoiceflow-$svc:${{ github.sha }} ghcr.io/${{ github.repository_owner | lower }}/invoiceflow-$svc:prod
+            docker push ghcr.io/${{ github.repository_owner | lower }}/invoiceflow-$svc:prod
           done
 
   deploy-to-production:
