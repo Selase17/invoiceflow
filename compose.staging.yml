@@ -1,0 +1,19 @@
+services:
+  api:
+    image: ghcr.io/selase17/invoiceflow-api:${IMAGE_TAG}
+    build: !reset null
+    ports:
+      - "8081:3000"
+
+  worker:
+    image: ghcr.io/selase17/invoiceflow-worker:${IMAGE_TAG}
+    build: !reset null
+
+  frontend:
+    image: ghcr.io/selase17/invoiceflow-frontend:${IMAGE_TAG}
+    build: !reset null
+
+  nginx:
+    ports:
+      - "8080:80"
+      - "8443:443"
