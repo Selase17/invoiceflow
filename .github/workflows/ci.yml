@@ -513,24 +513,24 @@ jobs:
         run: npm audit --audit-level=high --omit=dev
         working-directory: frontend
 
-        promote-to-staging:
-          needs: security-scan
-          if: github.ref == 'refs/heads/main'
-          runs-on: ubuntu-latest
-          environment: staging
-          steps:
-            - uses: docker/login-action@v3
-              with:
-                registry: ghcr.io
-                username: ${{ github.actor }}
-                password: ${{ secrets.GITHUB_TOKEN }}
-            - run: |
-                for svc in api worker frontend; do
-                  docker pull ghcr.io/selase17/invoiceflow-$svc:${{ github.sha }}
-                  docker tag ghcr.io/selase17/invoiceflow-$svc:${{ github.sha }} ghcr.io/selase17/invoiceflow-$svc:staging
-                  docker push ghcr.io/selase17/invoiceflow-$svc:staging
-                done
-      
+  promote-to-staging:
+    needs: security-scan
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - run: |
+          for svc in api worker frontend; do
+            docker pull ghcr.io/selase17/invoiceflow-$svc:${{ github.sha }}
+            docker tag ghcr.io/selase17/invoiceflow-$svc:${{ github.sha }} ghcr.io/selase17/invoiceflow-$svc:staging
+            docker push ghcr.io/selase17/invoiceflow-$svc:staging
+          done
+
   deploy-to-staging:
     needs: promote-to-staging
     runs-on: self-hosted
