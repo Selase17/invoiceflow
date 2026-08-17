@@ -536,7 +536,7 @@ jobs:
         with:
           context: .
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/invoiceflow-api:${{ github.sha }}
+          tags: ghcr.io/${{ github.repository_owner | lower }}}/invoiceflow-api:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -545,7 +545,7 @@ jobs:
         with:
           context: .
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/invoiceflow-worker:${{ github.sha }}
+          tags: ghcr.io/${{ github.repository_owner | lower }}/invoiceflow-worker:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -554,7 +554,7 @@ jobs:
         with:
           context: ./frontend
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/invoiceflow-frontend:${{ github.sha }}
+          tags: ghcr.io/${{ github.repository_owner | lower }}/invoiceflow-frontend:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
