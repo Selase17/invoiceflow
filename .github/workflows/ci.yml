@@ -529,7 +529,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.PAT_TOKEN }}
 
       # Build and push main API image
       - uses: docker/build-push-action@v5
@@ -569,7 +569,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.PAT_TOKEN }}
       - run: |
           for svc in api worker frontend; do
             docker pull ghcr.io/selase17/invoiceflow-$svc:${{ github.sha }}
@@ -621,7 +621,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.PAT_TOKEN }}
       - run: |
           for svc in api worker frontend; do
             docker pull ghcr.io/selase17/invoiceflow-$svc:${{ github.sha }}
