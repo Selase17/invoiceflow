@@ -582,6 +582,11 @@ jobs:
     runs-on: self-hosted
     environment: staging
     steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.PAT_TOKEN }}
       - name: "Deploy to staging stack"
         working-directory: /home/pasel/invoiceflow-staging
         env:
@@ -634,6 +639,11 @@ jobs:
     runs-on: self-hosted
     environment: production
     steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.PAT_TOKEN }}
       - name: "Deploy to production stack"
         working-directory: /home/pasel/invoiceflow
         env:
