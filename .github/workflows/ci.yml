@@ -591,9 +591,7 @@ jobs:
       - name: "Clean up existing staging stack"
         working-directory: /home/pasel/invoiceflow-staging
         run: |
-          if docker compose -f compose.yml -f compose.staging.yml ps 2>/dev/null | grep -q .; then
-            docker compose -f compose.yml -f compose.staging.yml down -v || true
-          fi
+          docker compose -f compose.yml -f compose.staging.yml down -v || true
           docker system prune -f --volumes || true
 
       - name: "Deploy to staging stack"
