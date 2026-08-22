@@ -38,9 +38,9 @@ services:
     image: postgres:16-alpine
     container_name: invoiceflow-db
     environment:
-      POSTGRES_DB: invoiceflow
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - db_data:/var/lib/postgresql/data
     healthcheck:
