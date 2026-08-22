@@ -591,8 +591,7 @@ jobs:
       - name: "Clean up existing staging stack"
         working-directory: /home/pasel/invoiceflow-staging
         run: |
-          # Safely check if any containers are running, allowing for empty results
-          if docker compose -f compose.yml -f compose.staging.yml ps 2>/dev/null | grep -q "^\w"; then
+          if docker compose -f compose.yml -f compose.staging.yml ps 2>/dev/null | grep -q .; then
             docker compose -f compose.yml -f compose.staging.yml down -v || true
           fi
           docker system prune -f --volumes || true
