@@ -587,6 +587,13 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.PAT_TOKEN }}
+
+      - name: "Clean up existing staging stack"
+        working-directory: /home/pasel/invoiceflow-staging
+        run: |
+          docker compose -f compose.yml -f compose.staging.yml down -v || true
+          docker system prune -f --volumes || true
+          
       - name: "Deploy to staging stack"
         working-directory: /home/pasel/invoiceflow-staging
         env:
