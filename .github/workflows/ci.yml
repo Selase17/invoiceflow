@@ -661,7 +661,8 @@ jobs:
           IMAGE_TAG: prod
         run: docker compose -f compose.yml -f compose.prod.yml up -d
 
-  smoke-test-production:
+  smoke-test-production: # smoke test the production stack after deployment
+    name: "Smoke test production stack"
     needs: deploy-to-production
     runs-on: self-hosted
     steps:
