@@ -609,7 +609,7 @@ jobs:
         working-directory: /home/pasel/invoiceflow-staging
         env:
           IMAGE_TAG: staging
-        run: docker compose -f compose.yml -f compose.staging.yml run --rm api npm run migrate:up
+        run: docker compose -f compose.yml -f compose.staging.yml run --rm -e DATABASE_URL api npm run migrate:up
 
 
       - name: "Bring up full staging stack"
@@ -671,7 +671,7 @@ jobs:
         working-directory: /home/pasel/invoiceflow
         env:
           IMAGE_TAG: prod
-        run: docker compose -f compose.yml -f compose.prod.yml run --rm api npm run migrate:up
+        run: docker compose -f compose.yml -f compose.prod.yml run --rm -e DATABASE_URL api npm run migrate:up
 
 
       - name: "Bring up full production stack"
