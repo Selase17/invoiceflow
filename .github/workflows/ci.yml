@@ -604,9 +604,14 @@ jobs:
           docker compose -f compose.yml -f compose.staging.yml pull api worker frontend
           docker compose -f compose.yml -f compose.staging.yml up -d db redis
           sleep 5
+
       - name: "Apply migrations to staging"
         working-directory: /home/pasel/invoiceflow-staging
-        run: docker compose exec -T api npm run migrate:up
+        env:
+          IMAGE_TAG: staging
+        run: docker compose -f compose.yml -f compose.staging.yml run --rm api npm run migrate:up
+
+
       - name: "Bring up full staging stack"
         working-directory: /home/pasel/invoiceflow-staging
         env:
@@ -661,9 +666,14 @@ jobs:
           docker compose -f compose.yml -f compose.prod.yml pull api worker frontend
           docker compose -f compose.yml -f compose.prod.yml up -d db redis
           sleep 5
+
       - name: "Apply migrations to production"
         working-directory: /home/pasel/invoiceflow
-        run: docker compose exec -T api npm run migrate:up
+        env:
+          IMAGE_TAG: prod
+        run: docker compose -f compose.yml -f compose.prod.yml run --rm api npm run migrate:up
+
+
       - name: "Bring up full production stack"
         working-directory: /home/pasel/invoiceflow
         env:
