@@ -21,3 +21,12 @@ services:
     ports: !override
       - "16687:16686"
       - "4318:4317"
+  grafana:
+    ports: !override
+      - "3002:3000"
+  loki:
+    ports: !override
+      - "3101:3100"
+  prometheus:
+    ports: !override
+      - "9091:9090"
