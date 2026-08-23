@@ -14,6 +14,10 @@ services:
     build: !reset null
 
   nginx:
-    ports:
+    ports: !override
       - "8080:80"
       - "8443:443"
+  jaeger:
+    ports: !override
+      - "16687:16686"
+      - "4318:4317"
