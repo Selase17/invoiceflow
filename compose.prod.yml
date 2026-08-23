@@ -12,6 +12,15 @@ services:
     image: ghcr.io/selase17/invoiceflow-worker:${IMAGE_TAG}
     build: !reset null
 
+  # Mailhog is a fake SMTP catcher for local development only.
+  # It has no place in production - SMTP_HOST should point at a real
+  # transactional email provider instead. Disabling it via an unused
+  # profile keeps it defined in the shared compose.yml (for local dev
+  # and staging) while guaranteeing it never starts here, avoiding the
+  # host port 8025 collision with staging's own mailhog instance.
+  mailhog:
+    profiles: ["disabled-in-production"]
+
   frontend:
     image: ghcr.io/selase17/invoiceflow-frontend:${IMAGE_TAG}
     build: !reset null
