@@ -15,19 +15,8 @@ env:
   NODE_VERSION: "22"
   IMAGE_TAG: invoiceflow:${{ github.sha }}
   FRONTEND_IMAGE_TAG: invoiceflow-frontend:${{ github.sha }}
-  # Shared across all jobs that talk to the service containers
-  DB_HOST: localhost
-  DB_PORT: 5432
-  DB_NAME: invoiceflow
-  DB_USER: postgres
-  DB_PASSWORD: postgres
-  REDIS_HOST: localhost
-  REDIS_PORT: 6379
-  SMTP_HOST: localhost
-  SMTP_PORT: 1025
   FROM_EMAIL: billing@invoiceflow.local
   SERVICE_NAME: invoiceflow-api
-  PORT: 3000
 
 # ─────────────────────────────────────────────────────────────────────────────
 # GATE 1 — Fast checks (no services needed; fail fast on cheap errors)
@@ -191,6 +180,17 @@ jobs:
     name: "Integration tests (API routes · async worker flow)"
     runs-on: ubuntu-latest
     needs: unit-tests
+    env:
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_NAME: invoiceflow
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      REDIS_HOST: localhost
+      REDIS_PORT: 6379
+      SMTP_HOST: localhost
+      SMTP_PORT: 1025
+      PORT: 3000
 
     services:
       postgres:
@@ -591,9 +591,7 @@ jobs:
       - name: "Clean up existing staging stack"
         working-directory: /home/pasel/invoiceflow-staging
         run: |
-          if docker compose -f compose.yml -f compose.staging.yml ps 2>/dev/null | grep -q .; then
-            docker compose -f compose.yml -f compose.staging.yml down -v || true
-          fi
+          docker compose -f compose.yml -f compose.staging.yml down -v || true
           docker system prune -f --volumes || true
 
       - name: "Deploy to staging stack"
@@ -692,4 +690,3 @@ jobs:
             sleep 2
           done
           echo "FAIL — production /api/health never returned 200"
-          exit 1
