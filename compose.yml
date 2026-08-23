@@ -2,7 +2,6 @@ services:
   api:
     build: .
     image: invoiceflow-api:v1.0.0
-    container_name: invoiceflow-api
     read_only: true
     tmpfs:
       - /tmp
@@ -19,7 +18,6 @@ services:
   worker:
     build: .
     image: invoiceflow-worker:v1.0.0
-    container_name: invoiceflow-worker
     read_only: true
     tmpfs:
       - /tmp
@@ -36,7 +34,6 @@ services:
 
   db:
     image: postgres:16-alpine
-    container_name: invoiceflow-db
     environment:
       POSTGRES_DB: ${DB_NAME}
       POSTGRES_USER: ${DB_USER}
@@ -51,7 +48,6 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: invoiceflow-redis
     volumes:
       - redis_data:/data
     healthcheck:
@@ -62,7 +58,6 @@ services:
 
   mailhog:
     image: mailhog/mailhog
-    container_name: invoiceflow-mailhog
     ports:
       - "8025:8025"
     healthcheck:
@@ -74,12 +69,10 @@ services:
   frontend:
     build: ./frontend
     image: invoiceflow-frontend:v1.0.0
-    container_name: invoiceflow-frontend
     networks: [public]
 
   nginx:
     image: nginx:1.27-alpine
-    container_name: invoiceflow-nginx
     ports:
       - "80:80"
       - "443:443"
@@ -96,7 +89,6 @@ services:
 
   prometheus:
     image: prom/prometheus:v2.52.0
-    container_name: invoiceflow-prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
@@ -114,7 +106,6 @@ services:
 
   redis-exporter:
     image: oliver006/redis_exporter:v1.61.0
-    container_name: invoiceflow-redis-exporter
     environment:
       REDIS_ADDR: redis://redis:6379
     networks: [private]
@@ -124,7 +115,6 @@ services:
 
   postgres-exporter:
     image: prometheuscommunity/postgres-exporter:v0.15.0
-    container_name: invoiceflow-postgres-exporter
     environment:
       DATA_SOURCE_NAME: "postgresql://postgres:postgres@db:5432/invoiceflow?sslmode=disable"
     networks: [private]
@@ -134,7 +124,6 @@ services:
 
   loki:
     image: grafana/loki:3.0.0
-    container_name: invoiceflow-loki
     command: -config.file=/etc/loki/loki-config.yml
     volumes:
       - ./loki/loki-config.yml:/etc/loki/loki-config.yml:ro
@@ -147,7 +136,6 @@ services:
   # Needs the Docker socket to discover containers by name.
   promtail:
     image: grafana/promtail:3.0.0
-    container_name: invoiceflow-promtail
     command: -config.file=/etc/promtail/promtail-config.yml
     volumes:
       - ./promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
@@ -158,7 +146,6 @@ services:
 
   grafana:
     image: grafana/grafana:11.0.0
-    container_name: invoiceflow-grafana
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin
@@ -176,7 +163,6 @@ services:
 
   jaeger:
     image: jaegertracing/all-in-one:latest
-    container_name: invoiceflow-jaeger
     ports:
       - "16686:16686"
       - "4317:4317"
