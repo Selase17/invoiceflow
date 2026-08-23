@@ -661,6 +661,7 @@ jobs:
         working-directory: /home/pasel/invoiceflow
         run: |
           docker compose -f compose.yml -f compose.prod.yml down -v || true
+          docker rm -f invoiceflow-redis invoiceflow-db invoiceflow-api invoiceflow-worker invoiceflow-nginx 2>/dev/null || true
           docker system prune -f --volumes || true
 
       - name: "Deploy to production stack"
