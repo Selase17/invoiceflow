@@ -1,5 +1,35 @@
 
+
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white)
+
+![Node.js](https://img.shields.io/badge/Node.js-22-339933?logo=node.js&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
+![CI](https://github.com/Selase17/invoiceflow/actions/workflows/ci.yml/badge.svg)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Grafana](https://img.shields.io/badge/Grafana-Dashboards-F46800?logo=grafana&logoColor=white)
+![Prometheus](https://img.shields.io/badge/Prometheus-Metrics-E6522C?logo=prometheus&logoColor=white)
+![Loki](https://img.shields.io/badge/Loki-Logging-F5A623)
+![Promtail](https://img.shields.io/badge/Promtail-Log%20Shipping-6E6E6E)
+![Jaeger](https://img.shields.io/badge/Jaeger-Tracing-60D0E4?logo=jaeger&logoColor=white)
 # InvoiceFlow
+
+![Node.js](https://img.shields.io/badge/Node.js-22-339933?logo=node.js&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
+![CI](https://github.com/Selase17/invoiceflow/actions/workflows/ci.yml/badge.svg)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Grafana](https://img.shields.io/badge/Grafana-Dashboards-F46800?logo=grafana&logoColor=white)
+![Prometheus](https://img.shields.io/badge/Prometheus-Metrics-E6522C?logo=prometheus&logoColor=white)
+![Loki](https://img.shields.io/badge/Loki-Logging-F5A623)
+![Promtail](https://img.shields.io/badge/Promtail-Log%20Shipping-6E6E6E)
+![Jaeger](https://img.shields.io/badge/Jaeger-Tracing-60D0E4?logo=jaeger&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white)
+![Grafana](https://img.shields.io/badge/Grafana-Dashboards-F46800?logo=grafana&logoColor=white)
+![Prometheus](https://img.shields.io/badge/Prometheus-Metrics-E6522C?logo=prometheus&logoColor=white)
+![Loki](https://img.shields.io/badge/Loki-Logging-F5A623)
+![Promtail](https://img.shields.io/badge/Promtail-Log%20Shipping-6E6E6E)
+![Jaeger](https://img.shields.io/badge/Jaeger-Tracing-60D0E4?logo=jaeger&logoColor=white)
 
 A multi-service expense tracking and invoicing application, built as a hands-on DevOps project covering the full lifecycle: containerised app development, CI/CD, observability, and staged production deployment.
 
