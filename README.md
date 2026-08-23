@@ -1,96 +1,55 @@
+
 # InvoiceFlow
 
-Expense tracking and invoicing system — a real multi-service application
-built as a hands-on subject for DevOps practice: Dockerfiles, Compose,
-registries, security hardening, observability, and eventually CI/CD.
+A multi-service expense tracking and invoicing application, built as a hands-on DevOps project covering the full lifecycle: containerised app development, CI/CD, observability, and staged production deployment.
 
-## What this actually does
+## Architecture
 
-- Manage clients
-- Create invoices with line items
-- Send an invoice — generates a PDF and emails it, asynchronously via a
-  background worker (not blocking the API request)
-- Track expenses
-- Automatically mark invoices overdue on a daily schedule
+- **API** — Node.js/Express, handles invoices, clients, expenses
+- **Worker** — BullMQ background job processor (invoice PDF generation, email delivery)
+- **Frontend** — React/Vite dashboard, served via nginx
+- **Postgres** — primary datastore, schema managed via [node-pg-migrate](https://github.com/salsita/node-pg-migrate)
+- **Redis** — job queue backing store for the worker
+- **nginx** — reverse proxy and TLS termination
 
-## Architecture (services you'll containerize)
+### Observability
 
-| Service | Role |
-|---|---|
-| `api` | REST API — `src/index.js` |
-| `worker` | Background job processor — `src/worker.js`. Same codebase, different entrypoint. |
-| `postgres` | Primary datastore |
-| `redis` | Job queue backing the worker (BullMQ) |
-| *(your choice)* | Reverse proxy / TLS termination — nginx recommended |
+- **Prometheus** + **Grafana** — metrics and dashboards
+- **Loki** + **Promtail** — centralised structured logging
+- **Jaeger** — distributed tracing across API → worker → Postgres, via OpenTelemetry
+- Postgres/Redis exporters for infrastructure-level metrics
 
-The `api` and `worker` are two processes from the *same* codebase, started
-with different npm scripts (`start:api` vs `start:worker`) — meaning
-they'll likely share one Dockerfile with two different `CMD`/entrypoint
-options, or two thin Dockerfiles both `COPY`-ing the same source. Worth
-deciding deliberately which approach you prefer.
+## CI/CD
 
-## Required environment variables
+GitHub Actions pipeline, gated end to end:
 
-```
-# Postgres
-DB_HOST=db
-DB_PORT=5432
-DB_NAME=invoiceflow
-DB_USER=postgres
-DB_PASSWORD=postgres
+1. **Fast checks** — syntax, `npm ci`, config lint
+2. **Unit tests** — business logic (totals, route normalisation, PDF layout)
+3. **Integration tests** — real Postgres/Redis/Mailhog service containers
+4. **Docker build validation** — non-root user, `.dockerignore` enforcement
+5. **Security scanning** — Trivy (CRITICAL/HIGH hard gate) and `npm audit`
+6. **Build & push** images to GHCR, tagged by commit SHA
+7. **Promote → deploy → smoke-test**, staging first (automatic), then production (manual approval gate)
 
-# Redis
-REDIS_HOST=redis
-REDIS_PORT=6379
+Deployment runs on a self-hosted GitHub Actions runner. Each environment (staging/production) runs as an isolated Compose stack with its own database, network, and remapped ports — no shared state between them.
 
-# Email (point at a sandbox SMTP provider like Mailtrap for local dev)
-SMTP_HOST=mailhog
-SMTP_PORT=1025
-SMTP_USER=
-SMTP_PASSWORD=
-FROM_EMAIL=billing@invoiceflow.local
-
-# API
-PORT=3000
-SERVICE_NAME=invoiceflow-api
-```
-
-## Database setup
-
-Run `db/schema.sql` against Postgres on first startup — mount it into
-Postgres's `/docker-entrypoint-initdb.d/` (same pattern as your
-`observability-lab` project) and it'll run automatically the first time
-the container starts with an empty data volume.
-
-## API reference
-
-```
-GET    /health              liveness check
-GET    /ready                readiness check (verifies DB connectivity)
-
-POST   /clients              { name, email }
-GET    /clients               list all clients
-GET    /clients/:id           get one client
-
-POST   /invoices              { client_id, due_date, line_items: [{ description, quantity, unit_price_cents }] }
-GET    /invoices              list all invoices
-GET    /invoices/:id          get one invoice with its line items
-POST   /invoices/:id/send     queues the invoice to be PDF'd and emailed (returns 202 immediately)
-
-POST   /expenses              { client_id?, description, amount_cents, incurred_on }
-GET    /expenses              list all expenses
-```
-
-## Running it locally without Docker first (recommended before containerizing)
-
-It's worth running this directly with `node` at least once, against a
-Postgres and Redis you have running some other way, just to confirm the
-application itself behaves as expected before you introduce the Docker
-layer — that way, if something breaks after you containerize it, you know
-the problem is in your Docker/Compose setup, not the app itself.
+## Local development
 
 ```bash
-npm install
-npm run start:api     # in one terminal
-npm run start:worker  # in another
+cp .env.example .env
+docker compose up -d
 ```
+
+API available at `http://localhost:3000`, frontend via nginx at `https://localhost` (self-signed cert in dev).
+
+## Running migrations
+
+```bash
+npm run migrate:up
+npm run migrate:down
+npm run migrate:create <name>
+```
+
+## License
+
+See [LICENSE](./LICENSE).
