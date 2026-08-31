@@ -579,7 +579,7 @@ jobs:
 
   deploy-to-staging:
     needs: promote-to-staging
-    runs-on: self-hosted
+    runs-on: [self-hosted, staging-linux]
     environment: staging
     steps:
       - uses: docker/login-action@v4
@@ -618,7 +618,7 @@ jobs:
 
   smoke-test-staging:
     needs: deploy-to-staging
-    runs-on: self-hosted
+    runs-on: [self-hosted, staging-linux]
     steps:
       - run: |
           for i in $(seq 1 15); do
@@ -648,7 +648,7 @@ jobs:
 
   deploy-to-production:
     needs: promote-to-production
-    runs-on: self-hosted
+    runs-on: [self-hosted, production-mac]
     environment: production
     steps:
       - uses: docker/login-action@v4
@@ -658,14 +658,14 @@ jobs:
           password: ${{ secrets.PAT_TOKEN }}
 
       - name: "Clean up existing production stack"
-        working-directory: /home/pasel/invoiceflow
+        working-directory: /Users/kojo/invoiceflow-production
         run: |
           docker compose -f compose.yml -f compose.prod.yml down -v || true
           docker rm -f invoiceflow-api invoiceflow-worker invoiceflow-db invoiceflow-redis invoiceflow-mailhog invoiceflow-frontend invoiceflow-nginx invoiceflow-prometheus invoiceflow-redis-exporter invoiceflow-postgres-exporter invoiceflow-loki invoiceflow-promtail invoiceflow-grafana invoiceflow-jaeger 2>/dev/null || true
           docker system prune -f --volumes || true
 
       - name: "Deploy to production stack"
-        working-directory: /home/pasel/invoiceflow
+        working-directory: /Users/kojo/invoiceflow-production
         env:
           IMAGE_TAG: prod
         run: |
@@ -674,14 +674,14 @@ jobs:
           sleep 5
 
       - name: "Apply migrations to production"
-        working-directory: /home/pasel/invoiceflow
+        working-directory: /Users/kojo/invoiceflow-production
         env:
           IMAGE_TAG: prod
         run: docker compose -f compose.yml -f compose.prod.yml run --rm -e DATABASE_URL api npm run migrate:up
 
 
       - name: "Bring up full production stack"
-        working-directory: /home/pasel/invoiceflow
+        working-directory: /Users/kojo/invoiceflow-production
         env:
           IMAGE_TAG: prod
         run: docker compose -f compose.yml -f compose.prod.yml up -d
@@ -689,7 +689,7 @@ jobs:
   smoke-test-production: # smoke test the production stack after deployment
     name: "Smoke test production stack"
     needs: deploy-to-production
-    runs-on: self-hosted
+    runs-on: [self-hosted, production-mac]
     steps:
       - run: |
           for i in $(seq 1 15); do
