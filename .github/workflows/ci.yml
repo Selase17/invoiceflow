@@ -397,7 +397,7 @@ jobs:
     permissions:
       security-events: write
       contents: read
-    
+
     name: "Security scanning (Trivy · npm audit)"
     runs-on: ubuntu-latest
     needs: docker-build
@@ -409,27 +409,36 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
-      - run: npm ci
+      - name: "npm ci"
+        if: always()
+        run: npm ci
 
       # Rebuild the image in this job (cheaper than cross-job artifact passing
       # for an image of this size — if it becomes slow, switch to docker save)
       - name: "Rebuild image for scanning"
+        if: always()
         run: docker build -t ${{ env.IMAGE_TAG }} .
 
       # Trivy: CRITICAL or HIGH vulnerabilities are a hard gate.
       # Results are also uploaded as SARIF for GitHub Security tab visibility.
       - name: "Install Trivy"
+        if: always()
         run: |
-          sudo apt-get install -y wget apt-transport-https gnupg lsb-release
-          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key \
-            | sudo apt-key add -
-          echo "deb https://aquasecurity.github.io/trivy-repo/deb \
-            $(lsb_release -sc) main" \
-            | sudo tee /etc/apt/sources.list.d/trivy.list
-          sudo apt-get update -qq
-          sudo apt-get install -y trivy
+          TRIVY_VERSION="0.72.0"
+          for i in 1 2 3; do
+            curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+              | sh -s -- -b /usr/local/bin "v${TRIVY_VERSION}" && break
+            echo "Trivy install attempt $i failed, retrying in 5s..."
+            sleep 5
+            if [ "$i" = "3" ]; then
+              echo "Trivy install failed after 3 attempts"
+              exit 1
+            fi
+          done
+          trivy --version
 
       - name: "Trivy image scan (CRITICAL/HIGH hard gate)"
+        if: always()
         run: |
           trivy image \
             --exit-code 1 \
@@ -461,6 +470,7 @@ jobs:
       # npm audit: any HIGH or CRITICAL vulnerability in the dependency tree
       # is a hard gate. --audit-level=high means it only fails on high+.
       - name: "npm audit (HIGH/CRITICAL hard gate)"
+        if: always()
         run: npm audit --audit-level=high
         # If you need to acknowledge a specific CVE temporarily:
         #   npm audit --audit-level=high --omit=dev
@@ -468,9 +478,11 @@ jobs:
 
       # Frontend image: same CRITICAL/HIGH hard gate as the API image.
       - name: "Rebuild frontend image for scanning"
+        if: always()
         run: docker build -t ${{ env.FRONTEND_IMAGE_TAG }} ./frontend
 
       - name: "Trivy image scan — frontend (CRITICAL/HIGH hard gate)"
+        if: always()
         run: |
           trivy image \
             --exit-code 1 \
@@ -500,6 +512,7 @@ jobs:
         continue-on-error: true
 
       - name: "npm ci — frontend"
+        if: always()
         run: npm ci
         working-directory: frontend
 
@@ -510,9 +523,11 @@ jobs:
       # that has no production exposure. react-router-dom (a real prod
       # dependency) is still audited.
       - name: "npm audit — frontend (HIGH/CRITICAL hard gate on production deps)"
+        if: always()
         run: npm audit --audit-level=high --omit=dev
         working-directory: frontend
 
+        
   build-and-push-images:
     name: "Build and push Docker images"
     runs-on: ubuntu-latest
@@ -537,6 +552,8 @@ jobs:
           context: .
           push: true
           tags: ghcr.io/selase17/invoiceflow-api:${{ github.sha }}
+          build-args: |
+            CACHEBUST=${{ github.run_id }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -546,6 +563,8 @@ jobs:
           context: .
           push: true
           tags: ghcr.io/selase17/invoiceflow-worker:${{ github.sha }}
+          build-args: |
+            CACHEBUST=${{ github.run_id }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -555,6 +574,8 @@ jobs:
           context: ./frontend
           push: true
           tags: ghcr.io/selase17/invoiceflow-frontend:${{ github.sha }}
+          build-args: |
+            CACHEBUST=${{ github.run_id }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -698,3 +719,4 @@ jobs:
             sleep 2
           done
           echo "FAIL — production /api/health never returned 200"
+          exit 1

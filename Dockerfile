@@ -1,8 +1,14 @@
-
 # Base image
 FROM node:22-alpine
 
-RUN apk add --no-cache curl
+# Security: pull in patched libcrypto3/libssl3 (CVE-2026-14456 and related
+# OpenSSL CVEs, fixed in 3.5.8-r0) — apk upgrade rather than waiting on a
+# new node:22-alpine tag, since Alpine's repos patch faster than Docker Hub
+# republishes base tags. ARG busts the GHA layer cache so this re-runs
+# fresh on every CI build instead of reusing a stale cached layer.
+ARG CACHEBUST=1
+RUN apk add --no-cache curl && \
+    apk upgrade --no-cache libcrypto3 libssl3
 
 # Security: Run as a non-root user
 RUN addgroup -g 1007 -S nodejs && adduser -S nodejs -u 1007 -G nodejs
