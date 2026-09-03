@@ -672,6 +672,13 @@ jobs:
     runs-on: [self-hosted, production-mac]
     environment: production
     steps:
+      - name: "DEBUG: check runner environment"
+        run: |
+          echo "HOME=$HOME"
+          whoami
+          echo "--- config.json content for this HOME ---"
+          cat "$HOME/.docker/config.json" 2>&1 || echo "no config.json found for this HOME"
+          
       - uses: docker/login-action@v4
         with:
           registry: ghcr.io
