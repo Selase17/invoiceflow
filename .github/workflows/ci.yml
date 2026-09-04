@@ -674,6 +674,14 @@ jobs:
     env:
       DOCKER_CONFIG: /Users/kojo/.docker-ci
     steps:
+
+      - name: "DEBUG: confirm DOCKER_CONFIG is applied"
+        run: |
+          echo "DOCKER_CONFIG=$DOCKER_CONFIG"
+          echo "--- contents of that config ---"
+          cat "$DOCKER_CONFIG/config.json" 2>&1 || echo "not found"
+          docker info --format '{{.DockerRootDir}}' 2>&1 || true
+
       
       - uses: docker/login-action@v4
         with:
