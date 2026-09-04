@@ -678,17 +678,7 @@ jobs:
 
       - name: "Log in to ghcr.io (write auth directly, bypass docker login)"
         run: |
-          mkdir -p /Users/kojo/.docker-ci
-          AUTH=$(echo -n "${{ github.actor }}:${{ secrets.PAT_TOKEN }}" | base64)
-          cat > /Users/kojo/.docker-ci/config.json <<EOF
-          {
-            "auths": {
-              "ghcr.io": {
-                "auth": "${AUTH}"
-              }
-            }
-          }
-          EOF
+          echo "${{ secrets.PAT_TOKEN }}" | docker --config /Users/kojo/.docker-ci login ghcr.io -u ${{ github.actor }} --password-stdin
 
       - name: "Clean up existing production stack"
         working-directory: /Users/kojo/invoiceflow-production
@@ -718,6 +708,10 @@ jobs:
         env:
           IMAGE_TAG: prod
         run: docker compose -f compose.yml -f compose.prod.yml up -d
+        
+      - name: "Log out of ghcr.io"
+        if: always()
+        run: docker --config /Users/kojo/.docker-ci logout ghcr.io || true
 
   smoke-test-production: # smoke test the production stack after deployment
     name: "Smoke test production stack"
