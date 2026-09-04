@@ -678,7 +678,7 @@ jobs:
 
       - name: "Log in to ghcr.io (write auth directly, bypass docker login)"
         run: |
-          mkdir -p /Users/kojo/.docker-ci
+          mkdir -p /Users/kojo/.docker-ci/cli-plugins
           AUTH=$(echo -n "${{ github.actor }}:${{ secrets.PAT_TOKEN }}" | base64)
           cat >/Users/kojo/.docker-ci/config.json <<EOF
           {
@@ -689,6 +689,7 @@ jobs:
             }
           }
           EOF
+          ln -sf /Users/kojo/.docker/cli-plugins/docker-compose /Users/kojo/.docker-ci/cli-plugins/docker-compose
 
       - name: "Clean up existing production stack"
         working-directory: /Users/kojo/invoiceflow-production
