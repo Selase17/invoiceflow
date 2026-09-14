@@ -2,7 +2,7 @@
 const { NodeSDK } = require("@opentelemetry/sdk-node");
 const { getNodeAutoInstrumentations } = require("@opentelemetry/auto-instrumentations-node");
 const { OTLPTraceExporter } = require("@opentelemetry/exporter-trace-otlp-grpc");
-const { Resource } = require("@opentelemetry/resources");
+const { resourceFromAttributes } = require("@opentelemetry/resources");
 const { ATTR_SERVICE_NAME } = require("@opentelemetry/semantic-conventions");
 
 const traceExporter = new OTLPTraceExporter({
@@ -10,7 +10,7 @@ const traceExporter = new OTLPTraceExporter({
 });
 
 const sdk = new NodeSDK({
-  resource: new Resource({
+  resource: resourceFromAttributes({
     [ATTR_SERVICE_NAME]: process.env.SERVICE_NAME || "invoiceflow",
   }),
   traceExporter,
