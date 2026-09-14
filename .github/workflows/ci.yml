@@ -603,6 +603,23 @@ jobs:
     runs-on: [self-hosted, staging-linux]
     environment: staging
     steps:
+      - name: "Install Infisical CLI"
+        run: |
+          curl -1sLf 'https://artifacts-cli.infisical.com/setup.deb.sh' | sudo -E bash
+          sudo apt-get install -y infisical
+      
+      - name: "Fetch secrets from Infisical"
+        env:
+          INFISICAL_CLIENT_ID: ${{ secrets.INFISICAL_CLIENT_ID }}
+          INFISICAL_CLIENT_SECRET: ${{ secrets.INFISICAL_CLIENT_SECRET }}
+        working-directory: /home/pasel/invoiceflow-staging
+        run: |
+          infisical export \
+            --domain=https://130-61-245-190.sslip.io \
+            --projectId=${{ secrets.INFISICAL_PROJECT_ID }} \
+            --env=staging \
+            --format=dotenv > .env
+
       - uses: docker/login-action@v4
         with:
           registry: ghcr.io
@@ -673,9 +690,25 @@ jobs:
     environment: production
     env:
       DOCKER_CONFIG: /Users/kojo/.docker-ci
-    
-    steps:
 
+    steps:
+      - name: "Install Infisical CLI"
+        run: |
+          brew install infisical/get-cli/infisical || true
+          infisical --version
+      
+      - name: "Fetch secrets from Infisical"
+        env:
+          INFISICAL_CLIENT_ID: ${{ secrets.INFISICAL_CLIENT_ID }}
+          INFISICAL_CLIENT_SECRET: ${{ secrets.INFISICAL_CLIENT_SECRET }}
+        working-directory: /Users/kojo/invoiceflow-production
+        run: |
+          infisical export \
+            --domain=https://130-61-245-190.sslip.io \
+            --projectId=${{ secrets.INFISICAL_PROJECT_ID }} \
+            --env=prod \
+            --format=dotenv > .env
+  
       - name: "Log in to ghcr.io (write auth directly, bypass docker login)"
         run: |
           mkdir -p /Users/kojo/.docker-ci/cli-plugins
