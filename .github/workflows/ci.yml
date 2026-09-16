@@ -726,7 +726,7 @@ jobs:
           infisical export \
             --domain=https://130-61-245-190.sslip.io \
             --projectId=${{ secrets.INFISICAL_PROJECT_ID }} \
-            --env=staging \
+            --env=prod \
             --format=dotenv \
             --token="$(cat /tmp/infisical_token)" > .env
 
@@ -776,7 +776,7 @@ jobs:
 
       - name: "Log out of ghcr.io"
         if: always()
-        run: docker --config /Users/kojo/.docker-ci logout ghcr.io || true
+        run: rm -f /Users/kojo/.docker-ci/config.json
 
   smoke-test-production: # smoke test the production stack after deployment
     name: "Smoke test production stack"
