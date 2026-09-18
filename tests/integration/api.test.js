@@ -166,3 +166,72 @@ describe("POST /invoices", () => {
     assert.ok(body.error, "response must include an error field (not a crash)");
   });
 });
+
+describe("GET /invoices/:id and POST /invoices/:id/notes", () => {
+  let invoiceId;
+
+  before(async () => {
+    await waitForServer();
+    // Create a client and an invoice to attach notes to
+    const clientRes = await post("/clients", {
+      name: "Notes Test Client",
+      email: `notes-ci-${Date.now()}@example.com`,
+    });
+    assert.ok(clientRes.body.id, "setup: failed to create test client");
+
+    const invoiceRes = await post("/invoices", {
+      client_id: clientRes.body.id,
+      due_date: "2026-12-31",
+      line_items: [{ description: "Test item", quantity: 1, unit_price_cents: 1000 }],
+    });
+    assert.ok(invoiceRes.body.id, "setup: failed to create test invoice");
+    invoiceId = invoiceRes.body.id;
+  });
+
+  it("GET /invoices/:id returns an empty notes array when no notes exist", async () => {
+    const { status, body } = await get(`/invoices/${invoiceId}`);
+    assert.equal(status, 200);
+    assert.ok(Array.isArray(body.notes), "response should include a notes array");
+    assert.equal(body.notes.length, 0);
+  });
+
+  it("POST /invoices/:id/notes returns 400 when body is missing", async () => {
+    const { status, body } = await post(`/invoices/${invoiceId}/notes`, {});
+    assert.equal(status, 400);
+    assert.ok(body.error);
+  });
+
+  it("POST /invoices/:id/notes returns 400 when body is empty/whitespace", async () => {
+    const { status } = await post(`/invoices/${invoiceId}/notes`, { body: "   " });
+    assert.equal(status, 400);
+  });
+
+  it("POST /invoices/:id/notes returns 404 for a non-existent invoice", async () => {
+    const { status, body } = await post("/invoices/999999/notes", { body: "test note" });
+    assert.equal(status, 404);
+    assert.ok(body.error);
+  });
+
+  it("POST /invoices/:id/notes returns 201 and persists a note, retrievable via GET", async () => {
+    const { status, body } = await post(`/invoices/${invoiceId}/notes`, {
+      body: "Client requested a payment plan.",
+    });
+    assert.equal(status, 201);
+    assert.ok(body.id, "response should include the new note id");
+    assert.equal(body.invoice_id, invoiceId);
+    assert.equal(body.body, "Client requested a payment plan.");
+
+    // Confirm the note shows up when fetching the invoice
+    const { body: invoiceBody } = await get(`/invoices/${invoiceId}`);
+    assert.equal(invoiceBody.notes.length, 1);
+    assert.equal(invoiceBody.notes[0].body, "Client requested a payment plan.");
+  });
+
+  it("multiple notes on the same invoice are returned in creation order", async () => {
+    await post(`/invoices/${invoiceId}/notes`, { body: "Second note" });
+    const { body } = await get(`/invoices/${invoiceId}`);
+    assert.equal(body.notes.length, 2);
+    assert.equal(body.notes[0].body, "Client requested a payment plan.");
+    assert.equal(body.notes[1].body, "Second note");
+  });
+});
