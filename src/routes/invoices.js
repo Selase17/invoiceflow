@@ -46,16 +46,6 @@ router.post("/", async (req, res) => {
   }
 });
 
-router.get("/", async (req, res) => {
-  try {
-    const result = await pool.query("SELECT * FROM invoices ORDER BY created_at DESC");
-    res.status(200).json(result.rows);
-  } catch (err) {
-    logger.error("invoices_list_failed", { error: err.message });
-    res.status(500).json({ error: "failed to list invoices" });
-  }
-});
-
 router.get("/:id", async (req, res) => {
   try {
     const invoiceResult = await pool.query("SELECT * FROM invoices WHERE id = $1", [req.params.id]);
@@ -66,7 +56,15 @@ router.get("/:id", async (req, res) => {
       "SELECT * FROM invoice_line_items WHERE invoice_id = $1",
       [req.params.id]
     );
-    res.status(200).json({ ...invoiceResult.rows[0], line_items: lineItemsResult.rows });
+    const notesResult = await pool.query(
+      "SELECT * FROM invoice_notes WHERE invoice_id = $1 ORDER BY created_at ASC",
+      [req.params.id]
+    );
+    res.status(200).json({
+      ...invoiceResult.rows[0],
+      line_items: lineItemsResult.rows,
+      notes: notesResult.rows,
+    });
   } catch (err) {
     logger.error("invoice_lookup_failed", { error: err.message });
     res.status(500).json({ error: "failed to retrieve invoice" });
@@ -93,6 +91,33 @@ router.post("/:id/send", async (req, res) => {
   } catch (err) {
     logger.error("invoice_send_failed", { invoice_id: invoiceId, error: err.message });
     res.status(500).json({ error: "failed to queue invoice send" });
+  }
+});
+
+router.post("/:id/notes", async (req, res) => {
+  const invoiceId = req.params.id;
+  const { body } = req.body;
+
+  if (!body || typeof body !== "string" || !body.trim()) {
+    return res.status(400).json({ error: "note body is required" });
+  }
+
+  try {
+    const invoiceResult = await pool.query("SELECT id FROM invoices WHERE id = $1", [invoiceId]);
+    if (invoiceResult.rows.length === 0) {
+      return res.status(404).json({ error: "invoice not found" });
+    }
+
+    const noteResult = await pool.query(
+      "INSERT INTO invoice_notes (invoice_id, body) VALUES ($1, $2) RETURNING *",
+      [invoiceId, body.trim()]
+    );
+
+    logger.info("invoice_note_added", { invoice_id: invoiceId });
+    res.status(201).json(noteResult.rows[0]);
+  } catch (err) {
+    logger.error("invoice_note_add_failed", { invoice_id: invoiceId, error: err.message });
+    res.status(500).json({ error: "failed to add note" });
   }
 });
 

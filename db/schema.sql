@@ -26,6 +26,13 @@ CREATE TABLE IF NOT EXISTS invoice_line_items (
     unit_price_cents INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS invoice_notes (
+    id SERIAL PRIMARY KEY,
+    invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+    body TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS expenses (
     id SERIAL PRIMARY KEY,
     client_id INTEGER REFERENCES clients(id),
@@ -37,3 +44,4 @@ CREATE TABLE IF NOT EXISTS expenses (
 
 CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices(status);
 CREATE INDEX IF NOT EXISTS idx_invoices_due_date ON invoices(due_date);
+CREATE INDEX IF NOT EXISTS idx_invoice_notes_invoice_id ON invoice_notes(invoice_id);
